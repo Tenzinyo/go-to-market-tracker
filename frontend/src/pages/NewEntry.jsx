@@ -116,9 +116,10 @@ export default function NewEntry() {
 
   // Voice recording state
   const [recording, setRecording] = useState(false)
-  const [interim, setInterim] = useState('')
-  const recognitionRef = useRef(null)
-  const finalRef = useRef('')
+  const [transcribing, setTranscribing] = useState(false)
+  const [statusMsg, setStatusMsg] = useState('')
+  const mediaRecorderRef = useRef(null)
+  const chunksRef = useRef([])
 
   const { currentUser } = useUser()
   const navigate = useNavigate()
@@ -130,61 +131,55 @@ export default function NewEntry() {
   // ── Voice recording ────────────────────────────────────────────────────────
   function toggleRecording() {
     if (recording) {
-      recognitionRef.current?.stop()
+      mediaRecorderRef.current?.stop()
       return
     }
 
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      setError('Speech recognition requires Chrome or Edge. Use the Type tab in other browsers.')
-      return
-    }
-
-    const r = new SR()
-    r.continuous = true
-    r.interimResults = true
-    r.lang = 'en-US'
-    recognitionRef.current = r
-    finalRef.current = ''
     setText('')
-    setInterim('')
     setError(null)
+    setStatusMsg('')
 
-    r.onresult = (event) => {
-      let interimText = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript
-        if (event.results[i].isFinal) {
-          finalRef.current += t + ' '
-        } else {
-          interimText = t
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        const chunks = []
+        chunksRef.current = chunks
+        const mr = new MediaRecorder(stream)
+        mediaRecorderRef.current = mr
+
+        mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+
+        mr.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop())
+          setRecording(false)
+          setTranscribing(true)
+          setStatusMsg('Transcribing…')
+          try {
+            const blob = new Blob(chunks, { type: 'audio/webm' })
+            const form = new FormData()
+            form.append('audio', blob, 'recording.webm')
+            const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+            setText(data.text)
+          } catch (err) {
+            setError(`Transcription failed: ${err.message}`)
+          } finally {
+            setTranscribing(false)
+            setStatusMsg('')
+          }
         }
-      }
-      setText(finalRef.current.trim())
-      setInterim(interimText)
-    }
 
-    r.onend = () => {
-      setRecording(false)
-      setInterim('')
-      setText(finalRef.current.trim())
-    }
-
-    r.onerror = (e) => {
-      if (e.error !== 'aborted') setError(`Mic error: ${e.error}`)
-      setRecording(false)
-      setInterim('')
-    }
-
-    r.start()
-    setRecording(true)
+        mr.start()
+        setRecording(true)
+      })
+      .catch(err => setError(`Microphone access denied: ${err.message}`))
   }
 
   function switchSource(s) {
-    if (recording) recognitionRef.current?.stop()
+    if (recording) mediaRecorderRef.current?.stop()
     setSource(s)
     setText('')
-    setInterim('')
+    setStatusMsg('')
     setError(null)
   }
 
@@ -343,7 +338,7 @@ export default function NewEntry() {
   }
 
   // ── Input screen ───────────────────────────────────────────────────────────
-  const displayText = recording ? (text + (interim ? ' ' + interim : '')) : text
+  const displayText = text
 
   return (
     <div className="page">
@@ -367,25 +362,21 @@ export default function NewEntry() {
                 <button
                   type="button"
                   onClick={toggleRecording}
+                  disabled={transcribing}
                   style={{
                     width: 72, height: 72, borderRadius: '50%',
-                    background: recording ? '#ef4444' : '#4f46e5',
+                    background: recording ? '#ef4444' : transcribing ? '#9ca3af' : '#4f46e5',
                     border: 'none', color: 'white', fontSize: 28,
-                    cursor: 'pointer', transition: 'all 0.15s',
+                    cursor: transcribing ? 'default' : 'pointer', transition: 'all 0.15s',
                     boxShadow: recording ? '0 0 0 6px rgba(239,68,68,0.2)' : '0 2px 12px rgba(79,70,229,0.3)',
                   }}
                   title={recording ? 'Stop recording' : 'Start recording'}
                 >
-                  {recording ? '■' : '🎙'}
+                  {transcribing ? '…' : recording ? '■' : '🎙'}
                 </button>
-                <div style={{ marginTop: 10, fontSize: 13, color: recording ? '#ef4444' : '#6b7280', fontWeight: 500 }}>
-                  {recording ? 'Recording… click to stop' : 'Click to speak'}
+                <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500, color: recording ? '#ef4444' : '#6b7280' }}>
+                  {recording ? 'Recording… click to stop' : transcribing ? (statusMsg || 'Processing…') : 'Click to speak'}
                 </div>
-                {interim && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af', fontStyle: 'italic', maxWidth: 400, textAlign: 'center' }}>
-                    {interim}
-                  </div>
-                )}
               </div>
             )}
 
@@ -399,13 +390,12 @@ export default function NewEntry() {
               {source === 'voice' && text && (
                 <label className="form-label">Transcript</label>
               )}
-              {(source !== 'voice' || text || interim) && (
+              {(source !== 'voice' || text) && (
                 <textarea
                   className="form-input"
                   style={{
                     minHeight: source === 'pasted' ? 180 : 120,
                     paddingBottom: 24,
-                    color: (recording && interim) ? '#6b7280' : undefined,
                   }}
                   value={source === 'voice' ? displayText : text}
                   onChange={e => { if (source !== 'voice' || !recording) setText(e.target.value) }}
@@ -431,7 +421,7 @@ export default function NewEntry() {
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 type="submit"
-                disabled={!text.trim() || extracting || recording}
+                disabled={!text.trim() || extracting || recording || transcribing}
                 className="btn btn-primary btn-lg"
               >
                 {extracting ? 'Extracting…' : 'Extract & Review →'}
@@ -442,7 +432,7 @@ export default function NewEntry() {
 
         <p className="text-muted text-sm" style={{ marginTop: 10, textAlign: 'center' }}>
           Fields are extracted automatically — no AI required.
-          {source === 'voice' && ' · Speech recognition works in Chrome and Edge.'}
+          {source === 'voice' && ' · Uses local Whisper model — works offline after first download.'}
         </p>
       </div>
     </div>

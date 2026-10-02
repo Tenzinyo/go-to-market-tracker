@@ -29,6 +29,7 @@ const shareRouter     = require('./routes/share');
 const syncRouter      = require('./routes/sync');
 const analyticsRouter = require('./routes/analytics');
 const searchRouter    = require('./routes/search');
+const voiceRouter     = require('./routes/voice');
 
 // ── App ────────────────────────────────────────────────────────────────────────
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/share',     shareRouter);
 app.use('/api/sync',      syncRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/search',    searchRouter);
+app.use('/api/voice',     voiceRouter);
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
