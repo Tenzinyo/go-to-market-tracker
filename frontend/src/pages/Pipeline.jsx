@@ -12,6 +12,7 @@ import {
 import { api } from '../api'
 import { useSSE } from '../hooks/useSSE'
 import StageTag from '../components/StageTag'
+import { tagColor } from '../lib/tagColors'
 
 // ── Draggable card ────────────────────────────────────────────────────────────
 
@@ -37,6 +38,28 @@ function KanbanCard({ account, isDraggingThis }) {
       <div className="kanban-card-meta">
         {account.entry_count} {account.entry_count === 1 ? 'activity' : 'activities'}
       </div>
+      <CardTags tags={account.tags} />
+    </div>
+  )
+}
+
+// ── Tag chips (shared) ─────────────────────────────────────────────────────────
+
+function CardTags({ tags }) {
+  let parsed
+  try { parsed = JSON.parse(tags || '[]') } catch { parsed = [] }
+  if (!parsed.length) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6 }}>
+      {parsed.map(t => {
+        const c = tagColor(t)
+        return (
+          <span key={t} style={{
+            background: c.bg, color: c.text,
+            padding: '1px 6px', borderRadius: 99, fontSize: 10, fontWeight: 500,
+          }}>{t}</span>
+        )
+      })}
     </div>
   )
 }
@@ -57,6 +80,7 @@ function CardOverlay({ account }) {
       <div className="kanban-card-meta">
         {account.entry_count} {account.entry_count === 1 ? 'activity' : 'activities'}
       </div>
+      <CardTags tags={account.tags} />
     </div>
   )
 }
