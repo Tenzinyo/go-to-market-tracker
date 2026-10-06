@@ -7,6 +7,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
+const fs      = require('fs');
 
 // ── Bootstrap DB + seed ────────────────────────────────────────────────────────
 require('./db/db');   // initializes DB + runs schema
@@ -54,6 +55,13 @@ app.use('/api/voice',     voiceRouter);
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+// ── Serve frontend static build (production) ───────────────────────────────────
+const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(FRONTEND_DIST)) {
+  app.use(express.static(FRONTEND_DIST));
+  app.get('*', (_req, res) => res.sendFile(path.join(FRONTEND_DIST, 'index.html')));
+}
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT ?? 3001;

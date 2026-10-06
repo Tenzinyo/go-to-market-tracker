@@ -118,8 +118,7 @@ export default function NewEntry() {
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
-  const mediaRecorderRef = useRef(null)
-  const chunksRef = useRef([])
+  const recognitionRef = useRef(null)
 
   const { currentUser } = useUser()
   const navigate = useNavigate()
@@ -131,7 +130,13 @@ export default function NewEntry() {
   // ── Voice recording ────────────────────────────────────────────────────────
   function toggleRecording() {
     if (recording) {
-      mediaRecorderRef.current?.stop()
+      recognitionRef.current?.stop()
+      return
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser. Use Chrome or Edge.')
       return
     }
 
@@ -139,44 +144,35 @@ export default function NewEntry() {
     setError(null)
     setStatusMsg('')
 
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => {
-        const chunks = []
-        chunksRef.current = chunks
-        const mr = new MediaRecorder(stream)
-        mediaRecorderRef.current = mr
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.interimResults = true
+    recognition.continuous = true
+    recognitionRef.current = recognition
 
-        mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+    recognition.onresult = (e) => {
+      let transcript = ''
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript
+      }
+      setText(transcript)
+    }
 
-        mr.onstop = async () => {
-          stream.getTracks().forEach(t => t.stop())
-          setRecording(false)
-          setTranscribing(true)
-          setStatusMsg('Transcribing…')
-          try {
-            const blob = new Blob(chunks, { type: 'audio/webm' })
-            const form = new FormData()
-            form.append('audio', blob, 'recording.webm')
-            const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form })
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-            setText(data.text)
-          } catch (err) {
-            setError(`Transcription failed: ${err.message}`)
-          } finally {
-            setTranscribing(false)
-            setStatusMsg('')
-          }
-        }
+    recognition.onerror = (e) => {
+      setError(`Speech recognition error: ${e.error}`)
+      setRecording(false)
+    }
 
-        mr.start()
-        setRecording(true)
-      })
-      .catch(err => setError(`Microphone access denied: ${err.message}`))
+    recognition.onend = () => {
+      setRecording(false)
+    }
+
+    recognition.start()
+    setRecording(true)
   }
 
   function switchSource(s) {
-    if (recording) mediaRecorderRef.current?.stop()
+    if (recording) recognitionRef.current?.stop()
     setSource(s)
     setText('')
     setStatusMsg('')

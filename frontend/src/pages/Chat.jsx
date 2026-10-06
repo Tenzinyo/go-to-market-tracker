@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useChatContext } from '../App'
 
 const SUGGESTIONS = [
   'Which deals are overdue on next steps?',
@@ -57,14 +58,8 @@ function Message({ msg }) {
 }
 
 export default function Chat() {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: "Hi! I have full access to your GTM pipeline data. Ask me anything — deal status, overdue follow-ups, account summaries, activity trends, or anything else about your pipeline.",
-    }
-  ])
+  const { messages, loading, sendQuestion, clearHistory } = useChatContext()
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -72,92 +67,23 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function sendQuestion(question) {
-    if (!question.trim() || loading) return
-
-    const userMsg = { role: 'user', content: question.trim() }
-    const assistantMsg = { role: 'assistant', content: '', streaming: true }
-
-    setMessages(prev => [...prev, userMsg, assistantMsg])
-    setInput('')
-    setLoading(true)
-
-    try {
-      const res = await fetch('/api/chat/query', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ question: question.trim() }),
-      })
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-        setMessages(prev => {
-          const msgs = [...prev]
-          msgs[msgs.length - 1] = { role: 'assistant', content: '', error: err.error, streaming: false }
-          return msgs
-        })
-        return
-      }
-
-      const reader  = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const payload = JSON.parse(line.slice(6))
-            if (payload.text) {
-              setMessages(prev => {
-                const msgs = [...prev]
-                const last = msgs[msgs.length - 1]
-                msgs[msgs.length - 1] = { ...last, content: last.content + payload.text }
-                return msgs
-              })
-            }
-            if (payload.done || payload.error) {
-              setMessages(prev => {
-                const msgs = [...prev]
-                msgs[msgs.length - 1] = {
-                  ...msgs[msgs.length - 1],
-                  streaming: false,
-                  error: payload.error ?? undefined,
-                }
-                return msgs
-              })
-            }
-          } catch {}
-        }
-      }
-    } catch (err) {
-      setMessages(prev => {
-        const msgs = [...prev]
-        msgs[msgs.length - 1] = { role: 'assistant', content: '', error: err.message, streaming: false }
-        return msgs
-      })
-    } finally {
-      setLoading(false)
-      setTimeout(() => inputRef.current?.focus(), 50)
-    }
-  }
+  useEffect(() => {
+    if (!loading) setTimeout(() => inputRef.current?.focus(), 50)
+  }, [loading])
 
   function handleSubmit(e) {
     e.preventDefault()
+    if (!input.trim()) return
     sendQuestion(input)
+    setInput('')
   }
 
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (!input.trim()) return
       sendQuestion(input)
+      setInput('')
     }
   }
 
@@ -169,9 +95,22 @@ export default function Chat() {
         borderBottom: '1px solid #e5e7eb',
         background: 'white',
         flexShrink: 0,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
       }}>
-        <h1 className="page-title">Pipeline Assistant</h1>
-        <p className="page-subtitle">Ask anything about your deals, accounts, and activity</p>
+        <div>
+          <h1 className="page-title">Pipeline Assistant</h1>
+          <p className="page-subtitle">Ask anything about your deals, accounts, and activity</p>
+        </div>
+        {messages.length > 1 && (
+          <button
+            onClick={clearHistory}
+            style={{ fontSize: 12, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', marginTop: 4 }}
+          >
+            Clear history
+          </button>
+        )}
       </div>
 
       {/* Messages */}

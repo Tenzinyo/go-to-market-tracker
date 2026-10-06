@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: gtm-tracker
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: cd frontend && npm install && npm run build && cd ../backend && npm install
+    startCommand: node backend/src/app.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /data
+      # Add these in the Render dashboard (Settings → Environment) if you use them:
+      # GOOGLE_SHEETS_SPREADSHEET_ID
+      # GOOGLE_SERVICE_ACCOUNT_EMAIL
+      # GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+      # SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, NOTIFY_FROM
+    disk:
+      name: gtm-data
+      mountPath: /data
+      sizeGB: 1

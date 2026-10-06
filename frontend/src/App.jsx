@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
@@ -12,9 +12,115 @@ import Settings from './pages/Settings'
 import Analytics from './pages/Analytics'
 
 export const UserContext = createContext(null)
+export function useUser() { return useContext(UserContext) }
 
-export function useUser() {
-  return useContext(UserContext)
+// ── Chat context — lives outside Chat page so streaming survives navigation ──
+export const ChatContext = createContext(null)
+export function useChatContext() { return useContext(ChatContext) }
+
+const CHAT_STORAGE_KEY = 'gtm_chat_history'
+const INITIAL_CHAT_MESSAGE = {
+  role: 'assistant',
+  content: "Hi! I have full access to your GTM pipeline data. Ask me anything — deal status, overdue follow-ups, account summaries, activity trends, or anything else about your pipeline.",
+}
+
+function ChatProvider({ children }) {
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(CHAT_STORAGE_KEY)
+      if (saved) return JSON.parse(saved)
+    } catch {}
+    return [INITIAL_CHAT_MESSAGE]
+  })
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    try {
+      const toSave = messages.map(m => ({ ...m, streaming: false }))
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave))
+    } catch {}
+  }, [messages])
+
+  async function sendQuestion(question) {
+    if (!question.trim() || loading) return
+
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: question.trim() },
+      { role: 'assistant', content: '', streaming: true },
+    ])
+    setLoading(true)
+
+    try {
+      const res = await fetch('/api/chat/query', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ question: question.trim() }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        setMessages(prev => {
+          const msgs = [...prev]
+          msgs[msgs.length - 1] = { role: 'assistant', content: '', error: err.error, streaming: false }
+          return msgs
+        })
+        return
+      }
+
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const payload = JSON.parse(line.slice(6))
+            if (payload.text) {
+              setMessages(prev => {
+                const msgs = [...prev]
+                const last = msgs[msgs.length - 1]
+                msgs[msgs.length - 1] = { ...last, content: last.content + payload.text }
+                return msgs
+              })
+            }
+            if (payload.done || payload.error) {
+              setMessages(prev => {
+                const msgs = [...prev]
+                msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], streaming: false, error: payload.error ?? undefined }
+                return msgs
+              })
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      setMessages(prev => {
+        const msgs = [...prev]
+        msgs[msgs.length - 1] = { role: 'assistant', content: '', error: err.message, streaming: false }
+        return msgs
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function clearHistory() {
+    sessionStorage.removeItem(CHAT_STORAGE_KEY)
+    setMessages([INITIAL_CHAT_MESSAGE])
+  }
+
+  return (
+    <ChatContext.Provider value={{ messages, loading, sendQuestion, clearHistory }}>
+      {children}
+    </ChatContext.Provider>
+  )
 }
 
 export default function App() {
@@ -29,6 +135,7 @@ export default function App() {
 
   return (
     <UserContext.Provider value={{ currentUser, selectUser }}>
+    <ChatProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
@@ -45,6 +152,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+    </ChatProvider>
     </UserContext.Provider>
   )
 }

@@ -256,6 +256,18 @@ router.post('/query', async (req, res) => {
     return res.status(400).json({ error: 'question is required' });
   }
 
+  // AI chat requires Ollama running locally — not available in cloud deployments
+  if (process.env.NODE_ENV === 'production' && OLLAMA_URL.includes('localhost')) {
+    res.setHeader('Content-Type',  'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection',    'keep-alive');
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ text: 'The AI Assistant requires Ollama running locally and is not available in the cloud deployment. All other features (pipeline, logging, analytics) work normally.' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+    return;
+  }
+
   const context = buildContext();
 
   const systemPrompt = `You are a GTM (Go-To-Market) assistant for a sales team. You have full access to their CRM data and can take actions when asked.
