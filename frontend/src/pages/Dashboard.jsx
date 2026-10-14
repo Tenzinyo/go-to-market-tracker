@@ -40,6 +40,7 @@ export default function Dashboard() {
   const dealsPerStage = data.deals_per_stage       ?? []
   const stageTimeline = data.stage_timeline        ?? []
   const forecast      = data.forecast             ?? {}
+  const tasks         = data.tasks                ?? {}
 
   return (
     <div className="page">
@@ -84,6 +85,16 @@ export default function Dashboard() {
           </div>
           <div className="stat-label">Stale deals ({staleDays}d+)</div>
         </div>
+        {(tasks.overdue_count > 0 || tasks.due_today_count > 0) && (
+          <div className="stat-card">
+            <div className="stat-value" style={{ color: tasks.overdue_count > 0 ? '#dc2626' : '#d97706' }}>
+              {tasks.overdue_count > 0 ? tasks.overdue_count : tasks.due_today_count}
+            </div>
+            <div className="stat-label">
+              {tasks.overdue_count > 0 ? 'Tasks overdue' : 'Tasks due today'}
+            </div>
+          </div>
+        )}
         {forecast.weighted_pipeline > 0 && (
           <div className="stat-card">
             <div className="stat-value" style={{ color: '#16a34a', fontSize: 22 }}>{forecast.weighted_str}</div>
@@ -200,6 +211,33 @@ export default function Dashboard() {
             </ul>
           )}
         </div>
+
+        {/* Tasks overdue + due today */}
+        {(tasks.overdue_count > 0 || tasks.due_today_count > 0) && (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div className="card-title" style={{ margin: 0 }}>Tasks Due</div>
+              <Link to="/tasks" className="text-muted text-xs">View all →</Link>
+            </div>
+            <ul className="alert-list">
+              {[...(tasks.overdue_list ?? []), ...(tasks.due_today_list ?? [])].slice(0, 6).map(t => (
+                <li key={t.id} className="alert-item">
+                  <span style={{
+                    display: 'inline-block', width: 7, height: 7, borderRadius: '50%', flexShrink: 0, marginTop: 4,
+                    background: t.priority === 'high' ? '#ef4444' : t.priority === 'medium' ? '#f59e0b' : '#9ca3af',
+                  }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{t.title}</div>
+                    <div className="text-muted text-xs">
+                      {t.account_name ?? t.deal_name ?? ''}
+                      {t.due_date && <span style={{ color: t.due_date < new Date().toISOString().split('T')[0] ? '#ef4444' : '#d97706' }}> · {t.due_date}</span>}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Recently updated accounts */}
         <div className="card">

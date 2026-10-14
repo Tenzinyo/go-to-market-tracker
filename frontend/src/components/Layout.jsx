@@ -8,8 +8,16 @@ const NAV = [
   { to: '/',          label: 'Dashboard',    icon: '⬡', end: true },
   { to: '/pipeline',  label: 'Pipeline',     icon: '⊞' },
   { to: '/accounts',  label: 'Accounts',     icon: '◎' },
+  { to: '/contacts',  label: 'Contacts',     icon: '◯' },
+  { to: '/leads',     label: 'Leads',        icon: '◑' },
+  { to: '/deals',     label: 'Deals',        icon: '◇' },
+  { to: '/tasks',     label: 'Tasks',        icon: '✓' },
   { to: '/log',       label: 'Activity Log', icon: '≡' },
   { to: '/analytics', label: 'Analytics',    icon: '◉' },
+  { to: '/health',    label: 'Health',       icon: '♥' },
+  { to: '/quotas',    label: 'Quotas',       icon: '◎' },
+  { to: '/reports',   label: 'Reports',      icon: '▦' },
+  { to: '/workflows', label: 'Workflows',    icon: '⚡' },
   { to: '/chat',      label: 'Assistant',    icon: '◈' },
   { to: '/settings',  label: 'Settings',     icon: '⚙' },
 ]
@@ -274,11 +282,22 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-label">Active user</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div className="user-label">Active user</div>
+            {currentUser?.role && currentUser.role !== 'rep' && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 99,
+                background: currentUser.role === 'admin' ? '#f5f3ff' : '#eff6ff',
+                color:      currentUser.role === 'admin' ? '#7c3aed' : '#1d4ed8',
+                border: `1px solid ${currentUser.role === 'admin' ? '#c4b5fd' : '#93c5fd'}`,
+              }}>{currentUser.role === 'admin' ? 'Admin' : 'Manager'}</span>
+            )}
+          </div>
           <select
             className="user-select"
             value={currentUser?.id ?? ''}
             onChange={e => {
+              // Use the freshly-fetched user (which includes role)
               const u = users.find(u => String(u.id) === e.target.value)
               if (u) selectUser(u)
             }}

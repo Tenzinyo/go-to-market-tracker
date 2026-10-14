@@ -100,43 +100,63 @@ export default function AccountList() {
                 <tr>
                   <th>Account</th>
                   <th>Stage</th>
+                  <th>Health</th>
                   <th>Activities</th>
                   <th>Last Updated</th>
                 </tr>
               </thead>
               <tbody>
-                {accounts.map(a => (
+                {accounts.map(a => {
+                  const days = a.days_since_activity ?? 999
+                  const healthColor = days <= 14 ? '#22c55e' : days <= 30 ? '#f59e0b' : days <= 60 ? '#f97316' : '#ef4444'
+                  const healthLabel = days <= 14 ? 'Healthy' : days <= 30 ? 'At Risk' : 'Critical'
+                  return (
                   <tr key={a.id}>
                     <td>
-                      <Link to={`/accounts/${a.id}`} style={{ fontWeight: 500 }}>{a.name}</Link>
-                      {(() => {
-                        try {
-                          const tags = JSON.parse(a.tags || '[]')
-                          return tags.length > 0 ? (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                              {tags.map(t => {
-                                const c = tagColor(t)
-                                return (
-                                  <span key={t} style={{
-                                    background: c.bg, color: c.text,
-                                    padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-                                  }}>{t}</span>
-                                )
-                              })}
-                            </div>
-                          ) : null
-                        } catch { return null }
-                      })()}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <Link to={`/accounts/${a.id}`} style={{ fontWeight: 500 }}>{a.name}</Link>
+                        {a.parent_name && (
+                          <span style={{ fontSize: 11, color: '#9ca3af' }}>↑ {a.parent_name}</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                        {a.industry && (
+                          <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 500 }}>
+                            {a.industry}
+                          </span>
+                        )}
+                        {(() => {
+                          try {
+                            const tags = JSON.parse(a.tags || '[]')
+                            return tags.map(t => {
+                              const c = tagColor(t)
+                              return (
+                                <span key={t} style={{
+                                  background: c.bg, color: c.text,
+                                  padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 500,
+                                }}>{t}</span>
+                              )
+                            })
+                          } catch { return null }
+                        })()}
+                      </div>
                     </td>
                     <td>
                       <StageTag name={a.stage_name} colorHex={a.color_hex} />
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: healthColor, flexShrink: 0, display: 'inline-block' }} />
+                        <span style={{ fontSize: 12, color: healthColor, fontWeight: 500 }}>{healthLabel}</span>
+                      </div>
                     </td>
                     <td className="text-muted">{a.entry_count}</td>
                     <td className="text-muted">
                       {new Date(a.updated_at).toLocaleDateString()}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

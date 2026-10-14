@@ -11,7 +11,10 @@
 
 const router = require('express').Router();
 const db     = require('../db/db');
-const { emit } = require('../services/sseEmitter');
+const { emit }        = require('../services/sseEmitter');
+const { fireTrigger } = require('../services/workflowEngine');
+const { requireRole } = require('../middleware/rbac');
+const { dispatch }    = require('../services/webhookDispatcher');
 
 // ── GET /api/accounts ─────────────────────────────────────────────────────────
 
@@ -31,12 +34,24 @@ router.get('/', (req, res) => {
   const { q, stage_id, tag, limit = 100, offset = 0 } = req.query;
 
   let sql = `
-    SELECT a.*, s.name as stage_name, s.color_hex,
+    SELECT a.id, a.name, a.aliases, a.current_stage_id, a.owner_id, a.tags,
+           a.lifecycle_stage, a.lead_source, a.lead_score,
+           a.industry, a.city, a.country, a.employee_count,
+           a.created_at, a.updated_at,
+           s.name as stage_name, s.color_hex,
            u.display_name as owner_name,
-           (SELECT COUNT(*) FROM entries e WHERE e.account_id = a.id AND e.deleted_at IS NULL) as entry_count
+           p.name as parent_name,
+           (SELECT COUNT(*) FROM entries e WHERE e.account_id = a.id AND e.deleted_at IS NULL) as entry_count,
+           CAST(julianday('now') - julianday(
+             COALESCE(
+               (SELECT MAX(COALESCE(e.meeting_date, date(e.created_at))) FROM entries e WHERE e.account_id = a.id AND e.deleted_at IS NULL),
+               date(a.created_at)
+             )
+           ) AS INTEGER) AS days_since_activity
     FROM accounts a
-    LEFT JOIN stages s ON a.current_stage_id = s.id
-    LEFT JOIN users  u ON a.owner_id = u.id
+    LEFT JOIN stages   s ON a.current_stage_id = s.id
+    LEFT JOIN users    u ON a.owner_id = u.id
+    LEFT JOIN accounts p ON a.parent_id = p.id AND p.deleted_at IS NULL
     WHERE a.deleted_at IS NULL
   `;
   const params = [];
@@ -78,6 +93,7 @@ router.post('/', (req, res) => {
 
   const account = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(info.lastInsertRowid);
   emit('account_created', { id: account.id, name: account.name });
+  dispatch('account_created', { account_id: account.id, account_name: account.name });
   res.status(201).json({ ok: true, account });
 });
 
@@ -86,10 +102,12 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const account = db.prepare(`
     SELECT a.*, s.name as stage_name, s.color_hex, s.text_color_hex,
-           u.display_name as owner_name
+           u.display_name as owner_name,
+           p.id as parent_id, p.name as parent_name
     FROM accounts a
-    LEFT JOIN stages s ON a.current_stage_id = s.id
-    LEFT JOIN users  u ON a.owner_id = u.id
+    LEFT JOIN stages   s ON a.current_stage_id = s.id
+    LEFT JOIN users    u ON a.owner_id = u.id
+    LEFT JOIN accounts p ON a.parent_id = p.id AND p.deleted_at IS NULL
     WHERE a.id = ? AND a.deleted_at IS NULL
   `).get(req.params.id);
 
@@ -111,7 +129,16 @@ router.get('/:id', (req, res) => {
     ORDER BY sh.changed_at ASC
   `).all(req.params.id);
 
-  res.json({ ok: true, account, contacts, stage_history: stageHistory });
+  // Subsidiaries — accounts whose parent_id = this account
+  const children = db.prepare(`
+    SELECT a.id, a.name, s.name as stage_name, s.color_hex
+    FROM accounts a
+    LEFT JOIN stages s ON a.current_stage_id = s.id
+    WHERE a.parent_id = ? AND a.deleted_at IS NULL
+    ORDER BY a.name ASC
+  `).all(req.params.id);
+
+  res.json({ ok: true, account, contacts, stage_history: stageHistory, children });
 });
 
 // ── PATCH /api/accounts/:id ───────────────────────────────────────────────────
@@ -120,26 +147,45 @@ router.patch('/:id', (req, res) => {
   const account = db.prepare(`SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL`).get(req.params.id);
   if (!account) return res.status(404).json({ error: 'Account not found' });
 
-  const { name, aliases, current_stage_id, owner_id, tags } = req.body;
+  const {
+    name, aliases, current_stage_id, owner_id, tags,
+    lifecycle_stage, lead_source, lead_score,
+    // hierarchy
+    parent_id,
+    // enrichment
+    website, industry, employee_count, annual_revenue,
+    description, city, country, linkedin_url,
+  } = req.body;
   const updates = [];
   const params  = [];
 
   if (name)              { updates.push(`name = ?`);              params.push(name); }
   if (aliases)           { updates.push(`aliases = ?`);           params.push(JSON.stringify(aliases)); }
-  if (current_stage_id !== undefined) {
-    updates.push(`current_stage_id = ?`);
-    params.push(current_stage_id);
-  }
-  if (owner_id !== undefined) {
-    updates.push(`owner_id = ?`);
-    params.push(owner_id);
-  }
-  if (tags !== undefined) {
-    updates.push(`tags = ?`);
-    params.push(JSON.stringify(tags));
-  }
+  if (current_stage_id !== undefined) { updates.push(`current_stage_id = ?`); params.push(current_stage_id); }
+  if (owner_id     !== undefined)     { updates.push(`owner_id = ?`);          params.push(owner_id); }
+  if (tags         !== undefined)     { updates.push(`tags = ?`);              params.push(JSON.stringify(tags)); }
+  if (lifecycle_stage !== undefined)  { updates.push(`lifecycle_stage = ?`);   params.push(lifecycle_stage); }
+  if (lead_source  !== undefined)     { updates.push(`lead_source = ?`);       params.push(lead_source ?? null); }
+  if (lead_score   !== undefined)     { updates.push(`lead_score = ?`);        params.push(Number(lead_score)); }
+  // hierarchy
+  if (parent_id    !== undefined)     { updates.push(`parent_id = ?`);         params.push(parent_id ?? null); }
+  // enrichment
+  if (website      !== undefined)     { updates.push(`website = ?`);           params.push(website ?? null); }
+  if (industry     !== undefined)     { updates.push(`industry = ?`);          params.push(industry ?? null); }
+  if (employee_count !== undefined)   { updates.push(`employee_count = ?`);    params.push(employee_count ? Number(employee_count) : null); }
+  if (annual_revenue !== undefined)   { updates.push(`annual_revenue = ?`);    params.push(annual_revenue ? Number(annual_revenue) : null); }
+  if (description  !== undefined)     { updates.push(`description = ?`);       params.push(description ?? null); }
+  if (city         !== undefined)     { updates.push(`city = ?`);              params.push(city ?? null); }
+  if (country      !== undefined)     { updates.push(`country = ?`);           params.push(country ?? null); }
+  if (linkedin_url !== undefined)     { updates.push(`linkedin_url = ?`);      params.push(linkedin_url ?? null); }
+
 
   if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  // Capture old lifecycle_stage before update (for change detection)
+  const before = lifecycle_stage !== undefined
+    ? db.prepare(`SELECT lifecycle_stage, name FROM accounts WHERE id = ?`).get(req.params.id)
+    : null;
 
   updates.push(`updated_at = datetime('now')`);
   params.push(req.params.id);
@@ -147,12 +193,22 @@ router.patch('/:id', (req, res) => {
 
   const updated = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(req.params.id);
   emit('account_updated', { id: updated.id });
+
+  // Fire lifecycle trigger if stage actually changed
+  if (before && lifecycle_stage && lifecycle_stage !== before.lifecycle_stage) {
+    fireTrigger('lifecycle_changed', {
+      account_id:      Number(req.params.id),
+      account_name:    before.name,
+      lifecycle_stage: lifecycle_stage,
+    });
+  }
+
   res.json({ ok: true, account: updated });
 });
 
 // ── DELETE /api/accounts/:id ──────────────────────────────────────────────────
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireRole('manager'), (req, res) => {
   const account = db.prepare(`SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL`).get(req.params.id);
   if (!account) return res.status(404).json({ error: 'Account not found' });
 
@@ -210,6 +266,19 @@ router.post('/:id/stage', (req, res) => {
     to_stage_id,
     to_stage_name:  toStage.name,
     changed_by_id,
+  });
+
+  dispatch('stage_changed', {
+    account_id:   Number(req.params.id),
+    account_name: account.name,
+    stage_name:   toStage.name,
+  });
+
+  fireTrigger('stage_changed', {
+    entity:       'account',
+    account_id:   Number(req.params.id),
+    account_name: account.name,
+    to_stage_id:  Number(to_stage_id),
   });
 
   res.json({ ok: true, from_stage_id: account.current_stage_id, to_stage_id, to_stage_name: toStage.name });

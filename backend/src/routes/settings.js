@@ -6,6 +6,7 @@
 
 const router = require('express').Router();
 const db     = require('../db/db');
+const { requireRole } = require('../middleware/rbac');
 
 router.get('/', (_req, res) => {
   const rows = db.prepare(`SELECT key, value, updated_at FROM settings ORDER BY key`).all();
@@ -14,7 +15,7 @@ router.get('/', (_req, res) => {
   res.json({ ok: true, settings });
 });
 
-router.patch('/', (req, res) => {
+router.patch('/', requireRole('admin'), (req, res) => {
   const allowed = [
     'stale_days_threshold',
     'default_timezone',

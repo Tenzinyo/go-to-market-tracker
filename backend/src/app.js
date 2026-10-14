@@ -14,8 +14,9 @@ require('./db/db');   // initializes DB + runs schema
 require('./db/seed'); // idempotent seed (stages, default settings)
 
 // ── Background services ────────────────────────────────────────────────────────
-require('./services/retryQueue').start();   // retry failed Sheets syncs every 5 min
-require('./services/digestMailer').start(); // send weekly pipeline digest every Monday 7–9 AM
+require('./services/retryQueue').start();      // retry failed Sheets syncs every 5 min
+require('./services/digestMailer').start();    // send weekly pipeline digest every Monday 7–9 AM
+require('./services/workflowEngine').start(); // run inactivity workflow checks hourly
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 const entriesRouter   = require('./routes/entries');
@@ -31,12 +32,29 @@ const syncRouter      = require('./routes/sync');
 const analyticsRouter = require('./routes/analytics');
 const searchRouter    = require('./routes/search');
 const voiceRouter     = require('./routes/voice');
+const dealsRouter     = require('./routes/deals');
+const emailsRouter    = require('./routes/emails');
+const tasksRouter     = require('./routes/tasks');
+const reportsRouter   = require('./routes/reports');
+const leadsRouter         = require('./routes/leads');
+const workflowsRouter     = require('./routes/workflows');
+const quotasRouter        = require('./routes/quotas');
+const contactsRouter      = require('./routes/contacts');
+const attachmentsRouter   = require('./routes/attachments');
+const pipelinesRouter     = require('./routes/pipelines');
+const healthRouter        = require('./routes/health');
+const integrationsRouter  = require('./routes/integrations');
+const webhooksRouter      = require('./routes/webhooks');
+
+// ── Middleware ─────────────────────────────────────────────────────────────────
+const { attachUser } = require('./middleware/rbac');
 
 // ── App ────────────────────────────────────────────────────────────────────────
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+app.use(attachUser); // attach req.currentUser on every request
 
 // ── API routes ─────────────────────────────────────────────────────────────────
 app.use('/api/entries',   entriesRouter);
@@ -52,9 +70,22 @@ app.use('/api/sync',      syncRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/search',    searchRouter);
 app.use('/api/voice',     voiceRouter);
+app.use('/api/deals',     dealsRouter);
+app.use('/api/emails',    emailsRouter);
+app.use('/api/tasks',     tasksRouter);
+app.use('/api/reports',   reportsRouter);
+app.use('/api/leads',       leadsRouter);
+app.use('/api/workflows',   workflowsRouter);
+app.use('/api/quotas',      quotasRouter);
+app.use('/api/contacts',    contactsRouter);
+app.use('/api/attachments', attachmentsRouter);
+app.use('/api/pipelines',     pipelinesRouter);
+app.use('/api/account-health', healthRouter);
+app.use('/api/integrations',  integrationsRouter);
+app.use('/api/webhooks',      webhooksRouter);
 
-// ── Health check ───────────────────────────────────────────────────────────────
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// ── Ping / liveness check ──────────────────────────────────────────────────────
+app.get('/api/ping', (_req, res) => res.json({ ok: true }));
 
 // ── Serve frontend static build (production) ───────────────────────────────────
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist');

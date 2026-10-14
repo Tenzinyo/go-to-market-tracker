@@ -10,6 +10,15 @@ import NewEntry from './pages/NewEntry'
 import Chat from './pages/Chat'
 import Settings from './pages/Settings'
 import Analytics from './pages/Analytics'
+import Deals from './pages/Deals'
+import DealDetail from './pages/DealDetail'
+import Tasks from './pages/Tasks'
+import Reports from './pages/Reports'
+import Leads from './pages/Leads'
+import Contacts from './pages/Contacts'
+import Workflows from './pages/Workflows'
+import Quotas from './pages/Quotas'
+import Health from './pages/Health'
 
 export const UserContext = createContext(null)
 export function useUser() { return useContext(UserContext) }
@@ -145,6 +154,15 @@ export default function App() {
             <Route path="accounts/:id" element={<AccountDetail />} />
             <Route path="log" element={<EntryLog />} />
             <Route path="log/new" element={<NewEntry />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="contacts" element={<Contacts />} />
+            <Route path="deals" element={<Deals />} />
+            <Route path="deals/:id" element={<DealDetail />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="workflows" element={<Workflows />} />
+            <Route path="quotas" element={<Quotas />} />
+            <Route path="health" element={<Health />} />
             <Route path="chat" element={<Chat />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="settings" element={<Settings />} />

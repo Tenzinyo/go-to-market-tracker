@@ -158,6 +158,48 @@ router.get('/', (req, res) => {
     LIMIT 30
   `).all();
 
+  // ── Tasks summary ─────────────────────────────────────────────────────────────
+  const taskOwnerClause = owner_id ? `AND t.assignee_id = ${Number(owner_id)}` : '';
+
+  const taskCounts = db.prepare(`
+    SELECT
+      SUM(CASE WHEN t.status IN ('open','in_progress') THEN 1 ELSE 0 END)                                    AS open_count,
+      SUM(CASE WHEN t.status IN ('open','in_progress') AND t.due_date < date('now') THEN 1 ELSE 0 END)       AS overdue_count,
+      SUM(CASE WHEN t.status IN ('open','in_progress') AND t.due_date = date('now') THEN 1 ELSE 0 END)       AS due_today_count
+    FROM tasks t
+    WHERE t.deleted_at IS NULL ${taskOwnerClause}
+  `).get();
+
+  const overdueTasksList = db.prepare(`
+    SELECT t.id, t.title, t.due_date, t.priority,
+           a.name AS account_name, d.name AS deal_name, u.display_name AS assignee_name
+    FROM tasks t
+    LEFT JOIN accounts a ON t.account_id  = a.id
+    LEFT JOIN deals    d ON t.deal_id     = d.id
+    LEFT JOIN users    u ON t.assignee_id = u.id
+    WHERE t.deleted_at IS NULL
+      AND t.status IN ('open','in_progress')
+      AND t.due_date < date('now')
+      ${taskOwnerClause}
+    ORDER BY t.due_date ASC, CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END
+    LIMIT 15
+  `).all();
+
+  const dueTodayTasksList = db.prepare(`
+    SELECT t.id, t.title, t.due_date, t.priority,
+           a.name AS account_name, d.name AS deal_name, u.display_name AS assignee_name
+    FROM tasks t
+    LEFT JOIN accounts a ON t.account_id  = a.id
+    LEFT JOIN deals    d ON t.deal_id     = d.id
+    LEFT JOIN users    u ON t.assignee_id = u.id
+    WHERE t.deleted_at IS NULL
+      AND t.status IN ('open','in_progress')
+      AND t.due_date = date('now')
+      ${taskOwnerClause}
+    ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END
+    LIMIT 10
+  `).all();
+
   // ── Deal forecasting ──────────────────────────────────────────────────────────
   const accountDeals = db.prepare(`
     SELECT a.id, a.name, s.name as stage_name,
@@ -199,6 +241,13 @@ router.get('/', (req, res) => {
       stale_deals:          { threshold_days: staleDays, items: staleDeals },
       missing_info:         missingInfo,
       stage_timeline:       stageTimeline,
+      tasks: {
+        open_count:      taskCounts.open_count    ?? 0,
+        overdue_count:   taskCounts.overdue_count ?? 0,
+        due_today_count: taskCounts.due_today_count ?? 0,
+        overdue_list:    overdueTasksList,
+        due_today_list:  dueTodayTasksList,
+      },
       forecast: {
         total_pipeline:    Math.round(totalPipeline),
         weighted_pipeline: Math.round(weightedPipeline),

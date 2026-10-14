@@ -9,31 +9,52 @@
 const router = require('express').Router();
 const db     = require('../db/db');
 const { emit } = require('../services/sseEmitter');
+const { requireRole } = require('../middleware/rbac');
 
-router.get('/', (_req, res) => {
-  const stages = db.prepare(`
-    SELECT * FROM stages WHERE deleted_at IS NULL ORDER BY order_index ASC
-  `).all();
+router.get('/', (req, res) => {
+  const { pipeline_id } = req.query;
+  let sql = `
+    SELECT s.*, p.name AS pipeline_name, p.is_default AS pipeline_is_default
+    FROM stages s
+    LEFT JOIN pipelines p ON s.pipeline_id = p.id
+    WHERE s.deleted_at IS NULL
+  `;
+  const params = [];
+  if (pipeline_id) {
+    sql += ` AND s.pipeline_id = ?`;
+    params.push(Number(pipeline_id));
+  }
+  sql += ` ORDER BY s.order_index ASC`;
+  const stages = db.prepare(sql).all(...params);
   res.json({ ok: true, stages });
 });
 
-router.post('/', (req, res) => {
-  const { name, color_hex = '#CCCCCC', text_color_hex = '#2B2B2B' } = req.body;
+router.post('/', requireRole('admin'), (req, res) => {
+  const { name, color_hex = '#CCCCCC', text_color_hex = '#2B2B2B', pipeline_id } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
 
-  const maxOrder = db.prepare(`SELECT MAX(order_index) as m FROM stages WHERE deleted_at IS NULL`).get();
+  // Resolve pipeline: use provided or fall back to default
+  let resolvedPipelineId = pipeline_id ? Number(pipeline_id) : null;
+  if (!resolvedPipelineId) {
+    const def = db.prepare(`SELECT id FROM pipelines WHERE is_default = 1 AND deleted_at IS NULL`).get();
+    resolvedPipelineId = def?.id ?? null;
+  }
+
+  const maxOrder = db.prepare(`
+    SELECT MAX(order_index) as m FROM stages WHERE pipeline_id = ? AND deleted_at IS NULL
+  `).get(resolvedPipelineId);
   const order_index = (maxOrder?.m ?? 0) + 1;
 
   const info = db.prepare(`
-    INSERT INTO stages (name, order_index, color_hex, text_color_hex) VALUES (?, ?, ?, ?)
-  `).run(name, order_index, color_hex, text_color_hex);
+    INSERT INTO stages (name, order_index, color_hex, text_color_hex, pipeline_id) VALUES (?, ?, ?, ?, ?)
+  `).run(name, order_index, color_hex, text_color_hex, resolvedPipelineId);
 
   const stage = db.prepare(`SELECT * FROM stages WHERE id = ?`).get(info.lastInsertRowid);
   emit('stage_created', { stage });
   res.status(201).json({ ok: true, stage });
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requireRole('admin'), (req, res) => {
   const stage = db.prepare(`SELECT id FROM stages WHERE id = ? AND deleted_at IS NULL`).get(req.params.id);
   if (!stage) return res.status(404).json({ error: 'Stage not found' });
 
@@ -57,7 +78,7 @@ router.patch('/:id', (req, res) => {
   res.json({ ok: true, stage: updated });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireRole('admin'), (req, res) => {
   const inUse = db.prepare(`
     SELECT COUNT(*) as c FROM accounts WHERE current_stage_id = ? AND deleted_at IS NULL
   `).get(req.params.id);
