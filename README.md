@@ -135,6 +135,15 @@ Refreshes automatically whenever any activity is logged, stage is changed, or de
 - Filters by lifecycle stage, lead source, and owner
 - Real-time updates via SSE
 
+**Adding a lead:**
+- Click **+ New Lead** and search for a company in the autocomplete field
+- Only accounts that already exist in the activity log can be promoted to leads — if a company hasn't been logged yet, log an activity first
+- Selecting an account and saving sets its lifecycle stage without creating a duplicate account record
+
+**Removing a lead:**
+- Each row has a **Remove** button with an inline confirmation step
+- Removing a lead clears the lifecycle stage from the account — the account and all its logged activity history remain intact
+
 ---
 
 ### 8. Deals
