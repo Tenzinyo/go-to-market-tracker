@@ -152,6 +152,21 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_activity',
+      description: 'Request deletion of an activity/entry from the activity log. Ownership is enforced — only the owner may delete. If the activity is unassigned it will first be assigned to the current user. Always requires explicit user confirmation before the deletion is carried out.',
+      parameters: {
+        type: 'object',
+        properties: {
+          account_name:  { type: 'string', description: 'Exact or partial account name the activity belongs to' },
+          activity_date: { type: 'string', description: 'Date of the activity in YYYY-MM-DD format to identify it (optional — uses the most recent entry if omitted)' },
+        },
+        required: ['account_name'],
+      },
+    },
+  },
 ];
 
 // ── Tool execution ─────────────────────────────────────────────────────────────
@@ -165,7 +180,7 @@ function findAccount(name) {
   return row ?? null;
 }
 
-function executeTool(name, args) {
+function executeTool(name, args, currentUserId) {
   if (name === 'assign_account_owner') {
     const account = findAccount(args.account_name);
     if (!account) return { ok: false, error: `Account "${args.account_name}" not found` };
@@ -205,6 +220,51 @@ function executeTool(name, args) {
     db.prepare(`UPDATE entries SET next_step = ?, next_step_date = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(args.next_step, args.due_date ?? null, entry.id);
     return { ok: true, message: `Next step for ${account.name} updated: "${args.next_step}"${args.due_date ? ` due ${args.due_date}` : ''}` };
+  }
+
+  if (name === 'delete_activity') {
+    const account = findAccount(args.account_name);
+    if (!account) return { ok: false, error: `Account "${args.account_name}" not found` };
+
+    let entry;
+    if (args.activity_date) {
+      entry = db.prepare(`
+        SELECT e.id, e.owner_id, e.activity_type, e.meeting_date, u.display_name as owner_name
+        FROM entries e LEFT JOIN users u ON e.owner_id = u.id
+        WHERE e.account_id = ? AND e.deleted_at IS NULL AND date(COALESCE(e.meeting_date, e.created_at)) = ?
+        ORDER BY e.created_at DESC LIMIT 1
+      `).get(account.id, args.activity_date);
+    } else {
+      entry = db.prepare(`
+        SELECT e.id, e.owner_id, e.activity_type, e.meeting_date, u.display_name as owner_name
+        FROM entries e LEFT JOIN users u ON e.owner_id = u.id
+        WHERE e.account_id = ? AND e.deleted_at IS NULL
+        ORDER BY COALESCE(e.meeting_date, date(e.created_at)) DESC, e.created_at DESC LIMIT 1
+      `).get(account.id);
+    }
+
+    if (!entry) {
+      return { ok: false, error: `No activity found for "${account.name}"${args.activity_date ? ` on ${args.activity_date}` : ''}` };
+    }
+
+    const summary = `${entry.activity_type ?? 'Activity'} on ${entry.meeting_date ?? 'unknown date'} for ${account.name}`;
+
+    // Ownership check — someone else owns it
+    if (entry.owner_id !== null && entry.owner_id !== currentUserId) {
+      return { ok: false, error: `Only ${entry.owner_name ?? 'the assigned owner'} can delete this activity. You do not own it.` };
+    }
+
+    // Auto-assign if unassigned
+    let autoAssigned = false;
+    if (entry.owner_id === null) {
+      if (!currentUserId) {
+        return { ok: false, error: 'No current user — cannot assign ownership before deletion.' };
+      }
+      db.prepare(`UPDATE entries SET owner_id = ?, updated_at = datetime('now') WHERE id = ?`).run(currentUserId, entry.id);
+      autoAssigned = true;
+    }
+
+    return { ok: true, needsConfirmation: true, entryId: entry.id, summary, autoAssigned };
   }
 
   return { ok: false, error: `Unknown tool: ${name}` };
@@ -250,8 +310,38 @@ async function streamOllama(messages, res) {
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+router.post('/confirm-action', (req, res) => {
+  const { entryId, confirmed } = req.body;
+  const currentUserId = req.currentUser?.id ?? null;
+
+  if (!entryId) return res.status(400).json({ error: 'entryId required' });
+
+  if (!confirmed) {
+    return res.json({ ok: true, message: 'Deletion cancelled. The activity has not been removed.' });
+  }
+
+  const entry = db.prepare(`
+    SELECT e.id, e.owner_id, e.activity_type, e.meeting_date, a.name as account_name
+    FROM entries e LEFT JOIN accounts a ON e.account_id = a.id
+    WHERE e.id = ? AND e.deleted_at IS NULL
+  `).get(entryId);
+
+  if (!entry) return res.status(404).json({ error: 'Activity not found or already deleted.' });
+  if (entry.owner_id !== currentUserId) {
+    return res.status(403).json({ error: 'Only the owner of this activity can delete it.' });
+  }
+
+  db.prepare(`UPDATE entries SET deleted_at = datetime('now') WHERE id = ?`).run(entryId);
+
+  return res.json({
+    ok: true,
+    message: `Done — the "${entry.activity_type ?? 'activity'}" on ${entry.meeting_date ?? 'unknown date'} for ${entry.account_name ?? 'unknown account'} has been permanently deleted.`,
+  });
+});
+
 router.post('/query', async (req, res) => {
   const { question } = req.body;
+  const currentUserId = req.currentUser?.id ?? null;
   if (!question?.trim()) {
     return res.status(400).json({ error: 'question is required' });
   }
@@ -279,6 +369,7 @@ Rules:
 - Use exact names from the TEAM MEMBERS and PIPELINE STAGES lists when calling tools.
 - Keep answers focused and scannable.
 - If you are unsure, say so rather than guessing.
+- When asked to delete an activity or entry, ALWAYS call the delete_activity tool — never use update_next_step or any other tool as a workaround. The tool handles all ownership and confirmation logic automatically. After calling it, inform the user that confirmation buttons will appear for them to approve or cancel the deletion.
 
 CRM DATA:
 ${context}`;
@@ -315,18 +406,28 @@ ${context}`;
     if (assistantMsg?.tool_calls?.length) {
       messages.push(assistantMsg);
 
+      const confirmActions = [];
       for (const tc of assistantMsg.tool_calls) {
         const toolName = tc.function?.name;
         const toolArgs = tc.function?.arguments ?? {};
         console.log(`[chat] tool call: ${toolName}`, toolArgs);
 
-        const result = executeTool(toolName, toolArgs);
+        const result = executeTool(toolName, toolArgs, currentUserId);
         console.log(`[chat] tool result:`, result);
+
+        if (result.needsConfirmation) {
+          confirmActions.push(result);
+        }
 
         messages.push({
           role:    'tool',
           content: JSON.stringify(result),
         });
+      }
+
+      // Emit confirmAction events so the frontend can show Yes/No buttons
+      for (const ca of confirmActions) {
+        res.write(`data: ${JSON.stringify({ confirmAction: ca })}\n\n`);
       }
 
       // ── Pass 2: stream the final response now that tools ran ─────────────────
