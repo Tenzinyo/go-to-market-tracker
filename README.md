@@ -1,6 +1,8 @@
 # GTM Tracker
 
-A local-first Go-To-Market activity tracker. Log sales meetings, calls, and touchpoints in plain English — the app extracts the structured data automatically (no AI, no API costs). View your pipeline as a kanban board, track overdue follow-ups, and see a live dashboard of deal activity.
+A local-first, full-stack Go-To-Market activity tracker built for sales teams. Log meetings, calls, and touchpoints in plain English — the app extracts structured data automatically with zero AI dependencies and zero API costs. Everything runs on your machine: SQLite database, Node.js backend, React frontend.
+
+> **Demo-ready.** Seed 15 accounts, 11 deals, 38 activities, and 12 tasks in one command and walk through every feature immediately.
 
 ---
 
@@ -10,36 +12,362 @@ A local-first Go-To-Market activity tracker. Log sales meetings, calls, and touc
 # 1 — Backend
 cd backend
 npm install
-node src/app.js          # runs on http://localhost:3001
+node src/app.js          # http://localhost:3001
 
 # 2 — Frontend (new terminal)
 cd frontend
 npm install
-npm run dev              # runs on http://localhost:5173
+npm run dev              # http://localhost:5173
 ```
 
-Open **http://localhost:5173** in Chrome or Edge (Chrome required for voice input).
+Open **http://localhost:5173** in Chrome or Edge (required for voice input).
 
-### Demo Data
-
-Seed the database with 15 realistic accounts, 14 contacts, 11 deals, 38 activities, and 12 tasks:
+### Load Demo Data
 
 ```bash
 cd backend
-node src/db/seed_demo.js           # add demo data (skips if data exists)
-node src/db/seed_demo.js --reset   # wipe and re-seed from scratch
+node src/db/seed_demo.js           # seed 15 accounts, 11 deals, 38 activities, 12 tasks
+node src/db/seed_demo.js --reset   # wipe everything and re-seed from scratch
 ```
 
 ---
 
-## How to Log an Activity
+## Feature Tour
 
-1. Click **Log Activity** in the sidebar
-2. Type (or speak) what happened — e.g.:
-   > *"Had lunch with AB Securities on Tuesday to discuss partnership in AI security. Will follow up next week."*
-3. Click **Extract & Review** — the app parses the text and pre-fills all fields
-4. Review the confirmation card, adjust anything, click **Confirm & Save**
-5. The entry appears in the Activity Log and the account moves to the right stage on the Pipeline board
+### 1. Log Activity — The Core Loop
+
+The fastest way to capture a sales touchpoint:
+
+1. Click **Log Activity** in the sidebar (or press `n`)
+2. Type what happened in plain English:
+   > *"Had lunch with Nomura Capital on Tuesday to discuss a $2M AI security deal. They want a proposal by end of month. Follow up next Friday."*
+3. Click **Extract & Review** — the app parses the sentence and pre-fills:
+   - Account name → matched against existing accounts via Fuse.js fuzzy search
+   - Activity type → Meeting
+   - Date → Tuesday's date
+   - Deal amount → $2,000,000
+   - Next step → "Send proposal"
+   - Next step date → next Friday's date
+4. Adjust any field on the confirmation card, pick a pipeline stage, click **Confirm & Save**
+5. The account moves to that stage on the Pipeline board in real time — no page refresh needed
+
+**Input modes:**
+- **Type** — freeform text
+- **Voice** — live mic transcription via Chrome Web Speech API
+- **Paste Thread** — paste a Slack/email thread, each message is extracted separately with a per-card review screen
+
+---
+
+### 2. Pipeline Board
+
+`/pipeline` — Kanban view of every account by stage.
+
+- Drag and drop cards between columns to move an account's stage instantly
+- Multiple pipeline support — switch between pipelines via tabs
+- Cards show: company name, industry, activity count, and colored tags
+- Real-time: any stage change (drag, new entry, or edit) updates all open browser tabs via SSE
+
+---
+
+### 3. Activity Log
+
+`/log` — Full searchable, filterable history of every logged touchpoint.
+
+- Filter by account, stage, date range
+- Inline **Edit** button on every row — opens a modal to change date, type, channel, stage, purpose, outcome, next step, deal amount
+- **Changing stage in the edit modal moves the account on the Pipeline board in real-time**
+- **Delete** with confirmation; all edits logged to an audit trail
+- **↓ Export CSV** exports the current filtered view (runs in-browser, no server call)
+
+---
+
+### 4. Dashboard
+
+`/` — Live overview of your entire pipeline.
+
+- Overdue next steps — entries with a past-due follow-up date
+- Upcoming meetings — scheduled in the next 7 days
+- Stale deals — accounts with no activity past a configurable threshold
+- Recent accounts — latest companies added to the tracker
+- Deals per stage — weighted pipeline value by close probability
+- Stage timeline — activity trend chart
+- Revenue forecast — projected close value across all open deals
+- Task summary — open/in-progress/done counts
+
+Refreshes automatically whenever any activity is logged, stage is changed, or deal is updated.
+
+---
+
+### 5. Accounts
+
+`/accounts` — Full company directory.
+
+- Search by name or alias
+- Filter by pipeline stage and freeform tags
+- Account detail page (`/accounts/:id`) includes:
+  - Current stage, owner, enrichment fields (industry, headcount, revenue, website, LinkedIn)
+  - Stage history — full timeline of every stage move with timestamps
+  - All logged activities in chronological order
+  - Linked contacts with email/phone/title
+  - Subsidiary accounts (parent/child hierarchy)
+  - **↗ Share** — generates a clean email-ready account summary with toggleable sections
+
+---
+
+### 6. Contacts
+
+`/contacts` — Global contact directory across all accounts.
+
+- Search by name, email, or job title
+- Filter by account
+- Fields: name, title, email, phone, LinkedIn URL, notes
+- **Compose Email** button pre-fills your default mail client
+- Contacts are also managed inline on every Account Detail page
+
+---
+
+### 7. Leads
+
+`/leads` — Dedicated lead pipeline, separate from accounts.
+
+- Lifecycle stages: Lead → MQL → SQL → Opportunity → Customer → Churned
+- One-click stage advancement or dropdown picker inline in the table
+- Lead score (0–100), lead source tracking, owner assignment
+- Funnel visualization — horizontal bars showing count at each lifecycle stage
+- Filters by lifecycle stage, lead source, and owner
+- Real-time updates via SSE
+
+---
+
+### 8. Deals
+
+`/deals` — Deal pipeline with forecasting.
+
+- Full CRUD with linked account, owner, value, close date, and win probability
+- Deal detail page: stage history, notes, linked account
+- Weighted pipeline value shown on Dashboard (value × probability)
+- Triggers Slack notifications and outbound webhooks on create/won/lost
+
+---
+
+### 9. Tasks
+
+`/tasks` — Unified task list across accounts and deals.
+
+- Statuses: open / in progress / done
+- Due dates with red overdue highlighting
+- Filter by account, assignee, and status
+- Task panel also embedded on Account Detail and Deal Detail pages
+
+---
+
+### 10. Health Scores
+
+`/health` — At-risk account radar.
+
+- Computed score per account based on: days since last activity, deal stage, engagement frequency
+- Color-coded indicators: healthy / at risk / critical
+- Sort by health score to immediately see which accounts need attention
+
+---
+
+### 11. Quotas
+
+`/quotas` — Revenue quota tracking per team member.
+
+- Set quarterly or monthly targets per rep
+- Attainment updates as deals close
+- Progress bars with % attained and gap to target
+
+---
+
+### 12. Analytics
+
+`/analytics` — Pipeline performance metrics, zero charting libraries.
+
+| Widget | What it shows |
+|---|---|
+| Win rate | Total accounts, Closed Won, Closed Lost, win % |
+| Pipeline funnel | Account count per stage as horizontal bars |
+| Avg days in stage | Computed from stage_history timestamps |
+| Activity breakdown | Meeting / Call / Email / Demo / etc. distribution |
+| Monthly activity | Entry count over the last 6 months |
+| Top accounts | Ranked by logged activity count |
+
+---
+
+### 13. Reports
+
+`/reports` — Configurable pipeline reports.
+
+- Filter by account, owner, stage, and date range
+- Activity summary view
+- Export from the Activity Log (CSV)
+
+---
+
+### 14. Workflows — Automation
+
+`/workflows` — Event-driven automation rules, no code required.
+
+**Trigger events:**
+- Stage changed
+- Deal created / won / lost
+- Account inactivity (configurable threshold in days)
+
+**Actions:**
+- Send an email
+- Post a message to Slack
+- Create a task
+
+The inactivity checker runs hourly in the background and fires rules automatically. Rules are listed with last-triggered timestamps and enable/disable toggles.
+
+---
+
+### 15. AI Assistant
+
+`/chat` — Conversational interface to your pipeline data.
+
+- Ask in plain English: *"Which accounts haven't had activity in 2 weeks?"*, *"What's our pipeline value in the Proposal stage?"*
+- Powered by **Ollama** — runs locally, no API key, no cost, no data leaves your machine
+- Default model: `llama3.2`; configurable via env vars
+- Streaming word-by-word responses
+- **Tool calling**: the assistant can take real actions — move an account's stage, assign an owner, update a next step
+- Suggestion chips on first load for common queries
+- Chat history persists across page navigation
+
+```bash
+# Install Ollama and pull the model
+brew install ollama
+ollama pull llama3.2
+ollama serve
+```
+
+```
+# backend/.env (optional overrides)
+OLLAMA_MODEL=llama3.2
+OLLAMA_URL=http://localhost:11434
+```
+
+---
+
+### 16. Integrations
+
+#### Slack Notifications
+- Posts to a Slack channel on: deal created, deal won, deal lost, stage changed
+- Configure with a Slack Incoming Webhook URL — no OAuth, no bot setup
+- Test button in **Settings → Integrations** (admin only)
+
+```
+# backend/.env
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+```
+
+#### Outbound Webhooks
+- Register any HTTP endpoint to receive pipeline events in real time
+- Supported events: `deal_created`, `deal_won`, `deal_lost`, `stage_changed`, `account_created`
+- Optional HMAC-SHA256 request signing (`X-GTM-Signature` header)
+- Per-webhook enable/disable/test/delete in Settings
+
+#### Google Sheets Sync
+- Every saved activity is automatically appended as a row in a connected Google Sheet
+- Auto-creates the "Activities" sheet and header row on first sync
+- Failed syncs retried every 5 minutes (up to 5 attempts)
+- Sync status view in **Settings → Sheets Sync**
+
+```
+# backend/.env
+GOOGLE_SHEETS_SPREADSHEET_ID=your-sheet-id
+GOOGLE_SERVICE_ACCOUNT_EMAIL=your-sa@project.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+```
+
+#### Email Notifications
+- When a new activity is logged, co-owners of that account receive an email summary
+- Weekly digest email every Monday morning: overdue steps, stale deals, upcoming meetings
+
+```
+# backend/.env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASS=your-app-password
+NOTIFY_FROM=GTM Tracker <you@gmail.com>
+```
+
+---
+
+### 17. Settings
+
+`/settings` — Fully configurable.
+
+| Tab | What you can do |
+|---|---|
+| Team | Add/edit users, assign email addresses, manage roles |
+| Stages | Rename, recolor, reorder, add, or delete pipeline stages |
+| App Settings | App name, stale deal threshold (days), default timezone |
+| Integrations | Slack webhook, outbound webhooks, sheets sync (admin only) |
+
+---
+
+### 18. RBAC — Roles & Permissions
+
+Three roles enforced server-side on every protected route:
+
+| Role | Permissions |
+|---|---|
+| `rep` | Log activities, view everything |
+| `manager` | + delete accounts/deals, edit workflows |
+| `admin` | + manage stages, settings, integrations, change user roles |
+
+- Role badge shown in sidebar footer
+- Admin-only Settings tabs hidden for lower roles
+- First user seeded is auto-promoted to admin
+
+---
+
+### 19. Real-Time Updates (SSE)
+
+Every mutation emits a Server-Sent Event. All open tabs update instantly with no polling:
+
+| Event | Who reacts |
+|---|---|
+| `new_entry` | Activity Log, Dashboard, Pipeline, Leads |
+| `entry_updated` | Activity Log, Dashboard |
+| `stage_change` | Pipeline, Dashboard, Leads |
+| `account_updated` | Pipeline, Leads, Dashboard, Account List |
+| `account_created` | Pipeline, Leads, Account List |
+| `deal_created/won/lost` | Dashboard, Deals |
+
+**Stage propagation is fully bidirectional:**
+- Log a new activity with a stage → account moves on the Pipeline board immediately
+- Edit an existing activity's stage in the Activity Log → same result, all views update live
+
+---
+
+### 20. Global Search
+
+- Search bar in the sidebar header
+- Searches accounts and activity entries simultaneously
+- Keyboard navigation: `↑↓` to move, `Enter` to open, `Esc` to close
+- Results appear after 2 characters with 250ms debounce
+
+---
+
+### 21. Keyboard Shortcuts
+
+Press `?` anywhere to see the full overlay.
+
+| Key | Action |
+|---|---|
+| `n` | Log Activity |
+| `d` | Dashboard |
+| `k` | Pipeline |
+| `a` | Accounts |
+| `l` | Activity Log |
+| `c` | AI Assistant |
+| `?` | Shortcuts overlay |
+| `Esc` | Close modal/overlay |
 
 ---
 
@@ -84,18 +412,20 @@ node src/db/seed_demo.js --reset   # wipe and re-seed from scratch
 │  ├─ /api/deals             deal pipeline + forecasting  │
 │  ├─ /api/tasks             task CRUD + status           │
 │  ├─ /api/stages            pipeline stage config        │
+│  ├─ /api/pipelines         multi-pipeline support       │
 │  ├─ /api/dashboard         all widget data in one call  │
 │  ├─ /api/events            SSE push stream              │
 │  ├─ /api/users             team member list             │
 │  ├─ /api/settings          app config                   │
 │  ├─ /api/search            global full-text search      │
-│  ├─ /api/account-health    account health scores        │
+│  ├─ /api/health            account health scores        │
 │  ├─ /api/quotas            quota tracking               │
 │  ├─ /api/reports           reporting data               │
 │  ├─ /api/workflows         automation workflows         │
 │  ├─ /api/integrations      Slack + integration status   │
 │  ├─ /api/webhooks          outbound webhook management  │
 │  ├─ /api/chat              AI assistant (streaming)     │
+│  ├─ /api/analytics         pipeline analytics           │
 │  ├─ /api/share             account share log            │
 │  └─ /api/ping              liveness check               │
 │                                                         │
@@ -104,6 +434,8 @@ node src/db/seed_demo.js --reset   # wipe and re-seed from scratch
 │  ├─ dateParser.js          chrono-node → dates/times    │
 │  ├─ fuzzyMatcher.js        Fuse.js → account matching   │
 │  ├─ sseEmitter.js          broadcasts events to clients │
+│  ├─ workflowEngine.js      automation trigger engine    │
+│  ├─ healthScore.js         per-account health scoring   │
 │  ├─ slackNotifier.js       Slack Incoming Webhook push  │
 │  ├─ webhookDispatcher.js   outbound webhook dispatch    │
 │  ├─ retryQueue.js          failed sync retry (5 min)    │
@@ -120,12 +452,14 @@ node src/db/seed_demo.js --reset   # wipe and re-seed from scratch
 │                                                         │
 │  Tables                                                 │
 │  ├─ stages               pipeline stages + colors       │
-│  ├─ users                team members                   │
+│  ├─ pipelines            multi-pipeline definitions     │
+│  ├─ users                team members + roles           │
 │  ├─ accounts             companies being tracked        │
 │  ├─ contacts             people at each account         │
 │  ├─ leads                lead pipeline                  │
 │  ├─ deals                deal pipeline + values         │
 │  ├─ tasks                tasks per account/deal         │
+│  ├─ workflows            automation rule definitions    │
 │  ├─ webhooks             outbound webhook configs       │
 │  ├─ entries              every logged activity          │
 │  ├─ stage_history        account stage audit trail      │
@@ -138,10 +472,10 @@ node src/db/seed_demo.js --reset   # wipe and re-seed from scratch
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Data flow for logging an activity
+### Data flow — logging an activity
 
 ```
-User types text
+User types / speaks text
       │
       ▼
 POST /api/entries/extract
@@ -152,205 +486,22 @@ extractor.js ──► dateParser.js   (chrono-node parses dates/times)
              ──► keyword dicts   (activity type, channel, stage, purpose…)
       │
       ▼
-Confirmation card shown in browser (user reviews + edits)
+Confirmation card (user reviews + edits extracted fields)
       │
       ▼
 POST /api/entries  (saves to SQLite)
       │
-      ├──► sheetsSync.js        (writes to Google Sheets)
-      ├──► retryQueue.js        (queues failed syncs)
-      ├──► slackNotifier.js     (posts to Slack if configured)
-      ├──► webhookDispatcher.js (fires outbound webhooks)
-      └──► sseEmitter.js        (broadcasts "new_entry" to all tabs)
+      ├──► accounts table        UPDATE current_stage_id if stage selected
+      ├──► stage_history table   INSERT row if stage changed
+      ├──► sheetsSync.js         append row to Google Sheets
+      ├──► retryQueue.js         queue if sheets sync fails
+      ├──► slackNotifier.js      post to Slack if configured
+      ├──► webhookDispatcher.js  fire outbound webhooks
+      └──► sseEmitter.js         broadcast new_entry + account_updated
                 │
                 ▼
-        Dashboard + Pipeline update live
+       All open tabs update: Pipeline, Dashboard, Leads, Activity Log
 ```
-
----
-
-## Features
-
-### Activity Logging  ✅
-- Type or speak what happened — extracts all structured data automatically, zero AI, zero cost
-- Activity types: Meeting, Call, Email, Demo, Presentation, Follow-up, Proposal, Contract, Podcast, Conference
-- Channels: Online, In-person, Phone, Email, Conference, Podcast
-- Outcome sentiment: Successful / Not interested / Needs follow-up
-- Fuzzy account matching via Fuse.js (catches typos and alternate names)
-- Date parsing via chrono-node ("next Friday", "Oct 12", "lunch" → 12:00)
-- Duplicate account detection with one-click merge
-
-### Pipeline & Accounts  ✅
-- Kanban pipeline board with drag-and-drop stage moves
-- Account list with search, stage filter, and tag filter
-- Account detail page: contacts, stage history, activity timeline, enrichment fields
-- Account tags: freeform colored labels, filterable in the accounts list
-- Deal forecasting: weighted pipeline value by stage probability on Dashboard
-
-### Contacts  ✅
-- Global `/contacts` page: search by name, email, or title; filter by account
-- Inline contact management on every account detail page (add/edit/delete)
-- Contact fields: name, job title, email, phone, LinkedIn URL, notes
-- Compose email button per contact opens your default mail client
-
-### Leads  ✅
-- Dedicated lead pipeline separate from accounts
-- Lead scoring, status tracking, and conversion flow
-
-### Deals  ✅
-- Full deal pipeline with stage history and audit trail
-- Deal detail page with linked account, value, close date, and probability
-- Weighted pipeline value integrated into Dashboard
-
-### Tasks  ✅
-- Task list linked to accounts and deals
-- Statuses: open / in progress / done
-- Due dates with overdue highlighting
-- Filterable by account, status, and assignee
-
-### Health Scores  ✅
-- Per-account health score based on recency of activity, deal stage, and engagement
-- `/health` page ranks all accounts by health with color-coded indicators
-- Identifies at-risk accounts that need attention
-
-### Quotas  ✅
-- Set revenue quotas per user per period
-- Track attainment as deals close
-- Dashboard-style quota progress view
-
-### Reports  ✅
-- Pipeline reports by account, owner, and date range
-- Activity summaries exportable from the UI
-
-### Workflows  ✅
-- Define automation rules triggered by events (stage change, inactivity, deal created)
-- Actions: send email, post to Slack, create task
-- Inactivity checker runs hourly and fires configured rules automatically
-
-### Analytics  ✅
-- Win rate stat cards — total accounts, Closed Won, Closed Lost, win %
-- Pipeline funnel — horizontal bar chart of accounts per stage
-- Avg days in stage — computed from stage history
-- Activity type breakdown — Meeting, Call, Email, Demo, etc.
-- Monthly activity chart — entry count over the last 6 months
-- Top accounts — ranked by logged activities
-- Pure CSS charts — zero charting libraries
-
-### Global Search  ✅
-- Search bar in the sidebar searches accounts and activities simultaneously
-- Keyboard-navigable dropdown (↑↓ navigate, ↵ open, Esc close)
-- Results appear after 2 characters with 250ms debounce
-
-### AI Assistant  ✅
-- Chat interface at `/chat` — ask anything about your pipeline in plain English
-- Powered by **Ollama (local, free)** — no API key, no cost, runs entirely on your machine
-- Uses `llama3.2` by default; configurable via `OLLAMA_MODEL` and `OLLAMA_URL`
-- Streaming word-by-word responses; chat history persists across navigation
-- **Tool calling**: assistant can take real actions — assign owners, move stages, update next steps
-- Suggestion chips on first load for common queries
-
-```
-# backend/.env (optional overrides)
-OLLAMA_MODEL=llama3.2
-OLLAMA_URL=http://localhost:11434
-```
-
-### Slack Notifications  ✅
-- Posts to Slack when deals are created, won, or lost, and when stages change
-- Configure via a Slack Incoming Webhook URL — no OAuth required
-- Test message button available in **Settings → Integrations** (admin only)
-
-```
-# backend/.env
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-```
-
-### Outbound Webhooks  ✅
-- Register any number of HTTP endpoints to receive pipeline events
-- Events: `deal_created`, `deal_won`, `deal_lost`, `stage_changed`, `account_created`
-- Optional HMAC-SHA256 request signing (`X-GTM-Signature` header) per webhook
-- Enable/disable/test/delete per webhook in **Settings → Integrations**
-- Fire-and-forget with 5-second timeout; no retry on failure
-
-### Google Sheets Sync  ✅
-- Every saved entry is automatically appended as a row in a Google Sheet
-- Auto-creates the "Activities" tab and header row on first sync
-- Failed syncs retried in the background every 5 minutes (up to 5 attempts)
-- Sync status in **Settings → Sheets Sync**: counts, last success, failed entries, Retry All
-
-```
-# backend/.env
-GOOGLE_SHEETS_SPREADSHEET_ID=your-sheet-id
-GOOGLE_SERVICE_ACCOUNT_EMAIL=your-sa@project.iam.gserviceaccount.com
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
-```
-
-Setup: create a Google Service Account, enable the Sheets API, share your spreadsheet with the service account email (Editor access).
-
-### Activity Notifications  ✅
-- When a new entry is logged, other team members who've interacted with that account are emailed a summary
-- Email includes: date, activity type, channel, topic, outcome, next step, deal value
-- Email addresses managed in **Settings → Team**
-
-```
-# backend/.env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=you@gmail.com
-SMTP_PASS=your-app-password    # Gmail: use an App Password
-NOTIFY_FROM=GTM Tracker <you@gmail.com>
-```
-
-### Weekly Digest Email  ✅
-- Automated Monday morning digest sent to all team members with email addresses
-- Includes: overdue next steps, stale deals, upcoming meetings, pipeline snapshot by stage
-- Scheduler runs hourly, fires between 7–9 AM on Mondays; tracks `last_digest_sent` to prevent duplicates
-
-### Share & Export  ✅
-- **↗ Share** button on every account detail page generates a clean email-style summary
-- Toggle filters: hide deal amounts, hide contacts, hide outcome notes
-- Copy to Clipboard or Open in Email (pre-fills subject + body in your mail client)
-- Every share is logged to the `shares` table
-
-### Export to CSV  ✅
-- **↓ Export CSV** on the Activity Log page exports all visible (filtered) entries
-- Columns: Date, Account, Type, Channel, Stage, Purpose, Outcome, Next Step, Due, Deal Amount, Owner
-- Runs entirely in the browser — no backend call needed
-
-### Voice & Thread Import  ✅
-- Voice tab: live transcription via browser Web Speech API (Chrome/Edge)
-- Paste Thread tab: paste a Slack/email/chat thread → splits into messages → extract all at once
-- Thread review: per-card edit, include/exclude toggle, Select All / Deselect All
-- Saves selected entries sequentially with running progress counter
-
-### Entry Editing  ✅
-- Every row in the Activity Log has an **Edit** button
-- Modal with all editable fields: date, activity type, channel, purpose, outcome, next step + due date, deal amount
-- Delete button with confirmation step; all edits logged to `edit_history` (field-level audit trail)
-
-### Keyboard Shortcuts  ✅
-- Press `?` anywhere to open the shortcuts overlay (Esc to close)
-- `n` Log Activity · `d` Dashboard · `k` Pipeline · `a` Accounts · `l` Activity Log · `c` AI Assistant
-- Disabled while typing in any input or textarea
-
-### Settings  ✅
-- **Team tab**: view/add team members, manage email addresses
-- **Stages tab**: rename, recolor, add, and delete stages
-- **App Settings tab**: app name, stale deal threshold, default timezone
-- **Integrations tab** (admin only): Slack config + test, outbound webhook management
-
-### RBAC  ✅
-- Three roles: `admin`, `manager`, `rep`
-- Admin-only routes protected server-side by `requireRole('admin')` middleware
-- Role badge shown in sidebar footer; admin-only tabs hidden for lower roles
-
-### Real-time Updates  ✅
-- SSE stream pushes `new_entry` events to all open tabs
-- Dashboard and Pipeline board refresh automatically on new activity
-
-### Mobile-Responsive Layout  ✅
-- At ≤ 768px the sidebar collapses into a horizontal top nav bar
-- Grids reflow to 1–2 columns; tables stay horizontally scrollable
 
 ---
 
@@ -367,7 +518,36 @@ NOTIFY_FROM=GTM Tracker <you@gmail.com>
 | Closed Lost | Red |
 | On Hold | Grey |
 
-Stages are fully configurable via **Settings → Stages** or `POST/PATCH /api/stages`.
+Fully configurable via **Settings → Stages** or `POST/PATCH /api/stages`.
+
+---
+
+## Environment Variables
+
+All optional. The app runs fully offline without any of these set.
+
+```
+# backend/.env
+
+# AI Assistant (local Ollama)
+OLLAMA_MODEL=llama3.2
+OLLAMA_URL=http://localhost:11434
+
+# Slack
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+# Google Sheets
+GOOGLE_SHEETS_SPREADSHEET_ID=
+GOOGLE_SERVICE_ACCOUNT_EMAIL=
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
+
+# Email (SMTP)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+NOTIFY_FROM=GTM Tracker <you@gmail.com>
+```
 
 ---
 
@@ -378,57 +558,72 @@ backend/src/
   app.js                        server entry point
   db/schema.sql                 full database schema
   db/seed.js                    stage + settings seed (idempotent)
-  db/seed_demo.js               demo data (--reset flag to wipe and re-seed)
+  db/seed_demo.js               demo data loader (--reset to wipe and re-seed)
+  middleware/
+    rbac.js                     role-based access control middleware
   routes/
-    accounts.js                 account CRUD + stage moves + webhook hooks
+    entries.js                  activity log CRUD + stage propagation
+    accounts.js                 account CRUD + stage moves + webhooks
     contacts.js                 contact CRUD
-    leads.js                    lead pipeline
+    leads.js                    lead pipeline + funnel
     deals.js                    deal pipeline + Slack/webhook hooks
     tasks.js                    task CRUD
-    health.js                   account health scores
+    health.js                   account health score endpoint
     quotas.js                   quota tracking
-    reports.js                  reporting endpoints
-    workflows.js                workflow rules engine
-    integrations.js             Slack status + test endpoint
+    reports.js                  report endpoints
+    analytics.js                pipeline analytics aggregations
+    workflows.js                workflow CRUD + trigger endpoint
+    integrations.js             Slack status + test
     webhooks.js                 outbound webhook CRUD + test
+    pipelines.js                multi-pipeline CRUD
+    stages.js                   stage CRUD
     search.js                   global full-text search
     chat.js                     AI assistant + tool calling
-    analytics.js                analytics aggregations
   services/
     extractor.js                rules-based field extraction (core)
     dateParser.js               chrono-node date/time parsing
     fuzzyMatcher.js             Fuse.js account name matching
     sseEmitter.js               SSE broadcast to all clients
+    workflowEngine.js           automation trigger evaluation
+    healthScore.js              per-account health computation
     slackNotifier.js            Slack Incoming Webhook fire-and-forget
     webhookDispatcher.js        outbound webhook dispatch + HMAC signing
     digestMailer.js             weekly digest email scheduler
-    sheetsSync.js               Google Sheets append
+    sheetsSync.js               Google Sheets row append
     retryQueue.js               failed sync retry queue
 
 frontend/src/
   App.jsx                       router + UserContext + ChatContext
-  api.js                        fetch wrapper
-  hooks/useSSE.js               SSE listener
-  hooks/useKeyboardShortcuts.js keyboard shortcut handler
+  api.js                        fetch wrapper (sends X-User-Id header)
+  hooks/
+    useSSE.js                   SSE event listener hook
+    usePermissions.js           role-aware permission checks
+    useKeyboardShortcuts.js     keyboard shortcut handler
   lib/tagColors.js              deterministic tag color palette
-  components/Layout.jsx         sidebar + global search + nav
+  components/
+    Layout.jsx                  sidebar + global search + nav
+    ConfirmationCard.jsx        post-extract review form
+    StageTag.jsx                colored stage pill
+    FileAttachments.jsx         file upload/list per account
+    TaskPanel.jsx               inline task list component
+    ComposeEmailModal.jsx       email compose for contacts
   pages/
     Dashboard.jsx               stats + pipeline health widgets
-    Pipeline.jsx                kanban board (dnd-kit)
+    Pipeline.jsx                kanban board (dnd-kit drag-and-drop)
     AccountList.jsx             account list + tag/stage filters
     AccountDetail.jsx           account detail + contacts + timeline + share
-    Contacts.jsx                global contacts page
-    Leads.jsx                   lead pipeline
+    Contacts.jsx                global contacts directory
+    Leads.jsx                   lead pipeline + funnel visualization
     Deals.jsx                   deal list
-    DealDetail.jsx              deal detail page
-    Tasks.jsx                   task list
-    Health.jsx                  account health scores
-    Quotas.jsx                  quota tracking
-    Reports.jsx                 reports
-    Workflows.jsx               workflow rules UI
+    DealDetail.jsx              deal detail + stage history
+    Tasks.jsx                   task list + filters
+    Health.jsx                  account health score rankings
+    Quotas.jsx                  quota tracking + attainment
+    Reports.jsx                 configurable pipeline reports
+    Workflows.jsx               automation rules UI
     Analytics.jsx               pipeline analytics (pure CSS charts)
-    EntryLog.jsx                activity log + filters + CSV export
-    NewEntry.jsx                log activity + voice + thread import
-    Chat.jsx                    AI assistant chat UI
+    EntryLog.jsx                activity log + filters + edit modal + CSV export
+    NewEntry.jsx                log activity (type / voice / paste thread)
+    Chat.jsx                    AI assistant streaming chat
     Settings.jsx                team + stages + app settings + integrations
 ```
