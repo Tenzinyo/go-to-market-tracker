@@ -423,18 +423,22 @@ function ScoreCell({ lead, onUpdated }) {
 
 // ── Lead Row (with inline delete) ─────────────────────────────────────────────
 
-function LeadRow({ lead, isLast, onUpdated }) {
+function LeadRow({ lead, isLast, onUpdated, onDelete }) {
   const [confirming, setConfirming] = useState(false)
   const [deleting,   setDeleting]   = useState(false)
+  const [error,      setError]      = useState('')
 
   async function handleDelete() {
     setDeleting(true)
+    setError('')
     try {
-      await api.del(`/leads/${lead.id}`)
-      onUpdated()
-    } finally {
-      setDeleting(false)
+      await api.patch(`/leads/${lead.id}`, { lifecycle_stage: null })
+      onDelete(lead.id)   // optimistically remove from parent list
+      onUpdated()         // also sync funnel counts
+    } catch (e) {
+      setError(e.message || 'Failed to remove lead')
       setConfirming(false)
+      setDeleting(false)
     }
   }
 
@@ -450,6 +454,7 @@ function LeadRow({ lead, isLast, onUpdated }) {
         {lead.stage_name && (
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{lead.stage_name}</div>
         )}
+        {error && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>{error}</div>}
       </td>
       <td style={{ padding: '11px 16px' }}>
         <StageCell lead={lead} onUpdated={onUpdated} />
@@ -549,6 +554,11 @@ export default function Leads() {
   })
 
   function refresh() { loadLeads(); loadFunnel() }
+
+  function handleDeleteLead(id) {
+    setLeads(prev => prev.filter(l => l.id !== id))
+    loadFunnel()
+  }
 
   const totalLeads = funnel.reduce((s, f) => s + f.count, 0)
 
@@ -695,7 +705,7 @@ export default function Leads() {
             </thead>
             <tbody>
               {leads.map((lead, i) => (
-                <LeadRow key={lead.id} lead={lead} isLast={i === leads.length - 1} onUpdated={refresh} />
+                <LeadRow key={lead.id} lead={lead} isLast={i === leads.length - 1} onUpdated={refresh} onDelete={handleDeleteLead} />
               ))}
             </tbody>
           </table>
