@@ -82,6 +82,12 @@ Refreshes automatically whenever any activity is logged, stage is changed, or de
 - Cards show: company name, industry, activity count, and colored tags
 - Real-time: any stage change (drag, new entry, or edit) updates all open browser tabs via SSE
 
+**Deleting an account from the pipeline:**
+- Each card has a **×** button (top-right corner) for accounts added by mistake
+- Clicking × shows a first inline confirmation: "Delete this account?"
+- Confirming opens a second modal warning: lists exactly what will be removed (activities, contacts, history) and states it cannot be undone
+- Both confirmations must be passed before deletion executes — the account is soft-deleted and removed from the board instantly
+
 ---
 
 ### 4. Activity Log

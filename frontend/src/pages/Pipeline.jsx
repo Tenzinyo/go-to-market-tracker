@@ -14,35 +14,151 @@ import { useSSE } from '../hooks/useSSE'
 import StageTag from '../components/StageTag'
 import { tagColor } from '../lib/tagColors'
 
+// ── Delete warning modal (second confirmation) ────────────────────────────────
+
+function DeleteWarningModal({ account, onConfirm, onCancel, deleting }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }} onClick={e => { if (e.target === e.currentTarget) onCancel() }}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: 28, maxWidth: 420, width: '100%',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ fontSize: 28, marginBottom: 12, textAlign: 'center' }}>⚠️</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, textAlign: 'center' }}>
+          Permanently delete account?
+        </h2>
+        <p style={{ margin: '0 0 8px', fontSize: 13, color: '#374151', textAlign: 'center' }}>
+          <strong>{account.name}</strong> and all its logged activities, contacts, and history
+          will be removed from the system.
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#dc2626', textAlign: 'center', fontWeight: 500 }}>
+          This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button className="btn" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button
+            className="btn"
+            style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+            onClick={onConfirm}
+            disabled={deleting}
+          >
+            {deleting ? 'Deleting…' : 'Yes, delete permanently'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Draggable card ────────────────────────────────────────────────────────────
 
-function KanbanCard({ account, isDraggingThis }) {
+function KanbanCard({ account, isDraggingThis, onDelete }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: account.id })
+  const [step,     setStep]     = useState(0) // 0=normal 1=first confirm 2=second warning
+  const [deleting, setDeleting] = useState(false)
+  const [error,    setError]    = useState('')
+
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined
 
+  // Stop pointer events from bubbling to dnd listeners
+  function stopDrag(e) { e.stopPropagation() }
+
+  async function handleDelete() {
+    setDeleting(true)
+    setError('')
+    try {
+      await api.del(`/accounts/${account.id}`)
+      onDelete(account.id)
+    } catch (e) {
+      setError(e.message || 'Failed to delete')
+      setDeleting(false)
+      setStep(0)
+    }
+  }
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={`kanban-card${isDraggingThis ? ' is-dragging' : ''}`}
-    >
-      <div className="kanban-card-name">
-        <Link to={`/accounts/${account.id}`} onClick={e => e.stopPropagation()}>
-          {account.name}
-        </Link>
-      </div>
-      {account.industry && (
-        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{account.industry}</div>
+    <>
+      {step === 2 && (
+        <DeleteWarningModal
+          account={account}
+          onConfirm={handleDelete}
+          onCancel={() => setStep(0)}
+          deleting={deleting}
+        />
       )}
-      <div className="kanban-card-meta">
-        {account.entry_count} {account.entry_count === 1 ? 'activity' : 'activities'}
+
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        className={`kanban-card${isDraggingThis ? ' is-dragging' : ''}`}
+      >
+        {step === 0 && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div className="kanban-card-name" style={{ flex: 1, minWidth: 0 }}>
+                <Link to={`/accounts/${account.id}`} onClick={e => e.stopPropagation()}>
+                  {account.name}
+                </Link>
+              </div>
+              <button
+                onPointerDown={stopDrag}
+                onClick={e => { e.stopPropagation(); setStep(1) }}
+                title="Remove from pipeline"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: '#d1d5db', fontSize: 14, lineHeight: 1, padding: '0 0 0 6px',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = '#dc2626'}
+                onMouseLeave={e => e.currentTarget.style.color = '#d1d5db'}
+              >
+                ×
+              </button>
+            </div>
+            {account.industry && (
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{account.industry}</div>
+            )}
+            <div className="kanban-card-meta">
+              {account.entry_count} {account.entry_count === 1 ? 'activity' : 'activities'}
+            </div>
+            <CardTags tags={account.tags} />
+            {error && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>{error}</div>}
+          </>
+        )}
+
+        {step === 1 && (
+          <div onPointerDown={stopDrag} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{account.name}</div>
+            <div style={{ fontSize: 12, color: '#dc2626' }}>Delete this account?</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn btn-sm"
+                style={{ fontSize: 11, background: '#dc2626', color: '#fff', borderColor: '#dc2626', flex: 1 }}
+                onClick={e => { e.stopPropagation(); setStep(2) }}
+              >
+                Delete
+              </button>
+              <button
+                className="btn btn-sm"
+                style={{ fontSize: 11, flex: 1 }}
+                onClick={e => { e.stopPropagation(); setStep(0) }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      <CardTags tags={account.tags} />
-    </div>
+    </>
   )
 }
 
@@ -77,7 +193,7 @@ function CardOverlay({ account }) {
   )
 }
 
-function KanbanColumn({ stage, accounts, activeId }) {
+function KanbanColumn({ stage, accounts, activeId, onDelete }) {
   const { isOver, setNodeRef } = useDroppable({ id: stage.id })
   return (
     <div ref={setNodeRef} className={`kanban-column${isOver ? ' is-over' : ''}`}>
@@ -87,7 +203,7 @@ function KanbanColumn({ stage, accounts, activeId }) {
       </div>
       <div className="kanban-col-cards">
         {accounts.map(a => (
-          <KanbanCard key={a.id} account={a} isDraggingThis={activeId === a.id} />
+          <KanbanCard key={a.id} account={a} isDraggingThis={activeId === a.id} onDelete={onDelete} />
         ))}
       </div>
     </div>
@@ -146,6 +262,10 @@ export default function Pipeline() {
 
   const byStage = (stageId) => pipelineAccounts.filter(a => a.current_stage_id === stageId)
   const activeAccount = activeId != null ? accounts.find(a => a.id === activeId) : null
+
+  function handleDeleteAccount(id) {
+    setAccounts(prev => prev.filter(a => a.id !== id))
+  }
 
   async function handleDragEnd({ active, over }) {
     setActiveId(null)
@@ -232,7 +352,7 @@ export default function Pipeline() {
                 </div>
                 <div className="kanban-col-cards">
                   {unassigned.map(a => (
-                    <KanbanCard key={a.id} account={a} isDraggingThis={activeId === a.id} />
+                    <KanbanCard key={a.id} account={a} isDraggingThis={activeId === a.id} onDelete={handleDeleteAccount} />
                   ))}
                 </div>
               </div>
@@ -244,6 +364,7 @@ export default function Pipeline() {
                 stage={stage}
                 accounts={byStage(stage.id)}
                 activeId={activeId}
+                onDelete={handleDeleteAccount}
               />
             ))}
           </div>
