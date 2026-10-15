@@ -8,11 +8,16 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
-const { nodewhisper } = require('nodejs-whisper');
+
+let nodewhisper = null;
+try { nodewhisper = require('nodejs-whisper').nodewhisper; } catch {}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 router.post('/transcribe', upload.single('audio'), async (req, res) => {
+  if (!nodewhisper) {
+    return res.status(503).json({ error: 'Voice transcription is not available in this deployment. It requires a local Whisper installation.' });
+  }
   if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
 
   const tmpFile = path.join(os.tmpdir(), `whisper-${Date.now()}.webm`);
