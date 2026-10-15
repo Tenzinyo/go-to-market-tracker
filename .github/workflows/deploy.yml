@@ -33,4 +33,11 @@ jobs:
           npm ci
 
       - name: Trigger Render deploy
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "No deploy hook configured, skipping."
+          else
+            curl -fsSL -X POST "$RENDER_DEPLOY_HOOK_URL"
+          fi
