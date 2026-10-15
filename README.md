@@ -58,30 +58,7 @@ The fastest way to capture a sales touchpoint:
 
 ---
 
-### 2. Pipeline Board
-
-`/pipeline` — Kanban view of every account by stage.
-
-- Drag and drop cards between columns to move an account's stage instantly
-- Multiple pipeline support — switch between pipelines via tabs
-- Cards show: company name, industry, activity count, and colored tags
-- Real-time: any stage change (drag, new entry, or edit) updates all open browser tabs via SSE
-
----
-
-### 3. Activity Log
-
-`/log` — Full searchable, filterable history of every logged touchpoint.
-
-- Filter by account, stage, date range
-- Inline **Edit** button on every row — opens a modal to change date, type, channel, stage, purpose, outcome, next step, deal amount
-- **Changing stage in the edit modal moves the account on the Pipeline board in real-time**
-- **Delete** with confirmation; all edits logged to an audit trail
-- **↓ Export CSV** exports the current filtered view (runs in-browser, no server call)
-
----
-
-### 4. Dashboard
+### 2. Dashboard
 
 `/` — Live overview of your entire pipeline.
 
@@ -95,6 +72,27 @@ The fastest way to capture a sales touchpoint:
 - Task summary — open/in-progress/done counts
 
 Refreshes automatically whenever any activity is logged, stage is changed, or deal is updated.
+
+### 3. Pipeline Board
+
+`/pipeline` — Kanban view of every account by stage.
+
+- Drag and drop cards between columns to move an account's stage instantly
+- Multiple pipeline support — switch between pipelines via tabs
+- Cards show: company name, industry, activity count, and colored tags
+- Real-time: any stage change (drag, new entry, or edit) updates all open browser tabs via SSE
+
+---
+
+### 4. Activity Log
+
+`/log` — Full searchable, filterable history of every logged touchpoint.
+
+- Filter by account, stage, date range
+- Inline **Edit** button on every row — opens a modal to change date, type, channel, stage, purpose, outcome, next step, deal amount
+- **Changing stage in the edit modal moves the account on the Pipeline board in real-time**
+- **Delete** with confirmation; all edits logged to an audit trail
+- **↓ Export CSV** exports the current filtered view (runs in-browser, no server call)
 
 ---
 
