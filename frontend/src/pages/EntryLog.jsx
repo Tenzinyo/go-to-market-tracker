@@ -16,6 +16,7 @@ function EditModal({ entry, stages, onSave, onDelete, onClose }) {
     meeting_date:   entry.meeting_date   ?? '',
     activity_type:  entry.activity_type  ?? '',
     channel:        entry.channel        ?? '',
+    stage_id:       entry.stage_id       ?? '',
     purpose:        entry.purpose        ?? '',
     outcome:        entry.outcome        ?? '',
     next_step:      entry.next_step      ?? '',
@@ -68,12 +69,21 @@ function EditModal({ entry, stages, onSave, onDelete, onClose }) {
               </select>
             </div>
           </div>
-          <div>
-            <label className="form-label">Channel</label>
-            <select className="form-input" value={form.channel} onChange={e => set('channel', e.target.value)}>
-              <option value="">—</option>
-              {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Channel</label>
+              <select className="form-input" value={form.channel} onChange={e => set('channel', e.target.value)}>
+                <option value="">—</option>
+                {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Stage</label>
+              <select className="form-input" value={form.stage_id} onChange={e => set('stage_id', e.target.value)}>
+                <option value="">— no change —</option>
+                {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label className="form-label">Purpose / Topic</label>

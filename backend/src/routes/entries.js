@@ -133,6 +133,7 @@ router.post('/', (req, res) => {
   }
 
   // Update account's current stage
+  let stageActuallyChanged = false;
   if (account_id && stage_id) {
     const prevAccount = db.prepare(`SELECT current_stage_id FROM accounts WHERE id = ?`).get(account_id);
     db.prepare(`UPDATE accounts SET current_stage_id = ?, updated_at = datetime('now') WHERE id = ?`)
@@ -140,6 +141,7 @@ router.post('/', (req, res) => {
 
     // Log stage history if stage changed
     if (prevAccount && prevAccount.current_stage_id !== stage_id) {
+      stageActuallyChanged = true;
       db.prepare(`
         INSERT INTO stage_history (account_id, entry_id, from_stage_id, to_stage_id, changed_by_id)
         VALUES (?, ?, ?, ?, ?)
@@ -237,7 +239,7 @@ router.post('/', (req, res) => {
   // ── Notify co-owners (Phase 5+) ──────────────────────────────────────────────
   notifyCoOwners({ id, account_id, owner_id, activity_type, channel, purpose, outcome, next_step, next_step_date, deal_amount, meeting_date }).catch(() => {});
 
-  // ── Broadcast SSE event ───────────────────────────────────────────────────────
+  // ── Broadcast SSE events ──────────────────────────────────────────────────────
   emit('new_entry', {
     id,
     account_id,
@@ -247,6 +249,14 @@ router.post('/', (req, res) => {
     meeting_date,
     activity_type,
   });
+
+  // Also notify account-watchers (Pipeline, Leads, Dashboard) when stage moved
+  if (account_id) {
+    emit('account_updated', { id: account_id });
+  }
+  if (stageActuallyChanged && account_id) {
+    emit('stage_change', { account_id, to_stage_id: stage_id, to_stage_name: stage_name });
+  }
 
   const saved = db.prepare(`SELECT * FROM entries WHERE id = ?`).get(id);
   res.status(201).json({ ok: true, entry: saved });
@@ -336,6 +346,31 @@ router.patch('/:id', (req, res) => {
   params.push(req.params.id);
 
   db.prepare(`UPDATE entries SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  // If stage changed, propagate to account's current_stage_id
+  if ('stage_id' in req.body && entry.account_id) {
+    const newStageId = req.body.stage_id || null;
+    const prevAccount = db.prepare(`SELECT current_stage_id FROM accounts WHERE id = ?`).get(entry.account_id);
+    if (prevAccount && prevAccount.current_stage_id !== newStageId) {
+      db.prepare(`UPDATE accounts SET current_stage_id = ?, updated_at = datetime('now') WHERE id = ?`)
+        .run(newStageId, entry.account_id);
+      db.prepare(`
+        INSERT INTO stage_history (account_id, entry_id, from_stage_id, to_stage_id, changed_by_id)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(entry.account_id, req.params.id, prevAccount.current_stage_id, newStageId, edited_by_id);
+
+      const toStage = newStageId
+        ? db.prepare(`SELECT name FROM stages WHERE id = ?`).get(newStageId)
+        : null;
+      emit('stage_change', {
+        account_id:    entry.account_id,
+        from_stage_id: prevAccount.current_stage_id,
+        to_stage_id:   newStageId,
+        to_stage_name: toStage?.name ?? null,
+      });
+      emit('account_updated', { id: entry.account_id });
+    }
+  }
 
   emit('entry_updated', { id: req.params.id });
 
