@@ -80,8 +80,11 @@ function Funnel({ funnel }) {
 
 function NewLeadModal({ users, onClose, onCreated }) {
   const { currentUser } = useUser()
+  const [query,          setQuery]         = useState('')
+  const [suggestions,    setSuggestions]   = useState([])
+  const [selectedAccount, setSelectedAccount] = useState(null) // { id, name }
+  const [showDropdown,   setShowDropdown]  = useState(false)
   const [form, setForm] = useState({
-    name: '',
     lifecycle_stage: 'lead',
     lead_source: '',
     lead_score: 0,
@@ -92,18 +95,42 @@ function NewLeadModal({ users, onClose, onCreated }) {
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
+  // Debounced account search
+  useEffect(() => {
+    if (selectedAccount) return  // already picked
+    if (query.trim().length < 1) { setSuggestions([]); setShowDropdown(false); return }
+    const t = setTimeout(() => {
+      api.get(`/accounts?q=${encodeURIComponent(query.trim())}&limit=8`)
+        .then(d => { setSuggestions(d.accounts ?? []); setShowDropdown(true) })
+        .catch(() => {})
+    }, 200)
+    return () => clearTimeout(t)
+  }, [query, selectedAccount])
+
+  function pickAccount(acct) {
+    setSelectedAccount(acct)
+    setQuery(acct.name)
+    setShowDropdown(false)
+    setSuggestions([])
+    setError('')
+  }
+
+  function clearAccount() {
+    setSelectedAccount(null)
+    setQuery('')
+    setSuggestions([])
+  }
+
   async function submit(e) {
     e.preventDefault()
-    if (!form.name.trim()) { setError('Company name is required'); return }
+    if (!selectedAccount) {
+      setError('Select an existing account from the activity log. Log an activity first if this company isn\'t listed.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
-      // Create account first
-      const created = await api.post('/accounts', {
-        name: form.name.trim(),
-      })
-      // Then set lifecycle fields
-      await api.patch(`/accounts/${created.account.id}`, {
+      await api.patch(`/accounts/${selectedAccount.id}`, {
         lifecycle_stage: form.lifecycle_stage,
         lead_source:     form.lead_source || null,
         lead_score:      Number(form.lead_score),
@@ -134,10 +161,85 @@ function NewLeadModal({ users, onClose, onCreated }) {
         </div>
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label className="form-label">Company Name *</label>
-            <input className="form-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Acme Corp" autoFocus />
+
+          {/* Account search — must be an existing account */}
+          <div style={{ position: 'relative' }}>
+            <label className="form-label">
+              Company *
+              <span style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>
+                must exist in the activity log
+              </span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                value={query}
+                onChange={e => { setQuery(e.target.value); setSelectedAccount(null) }}
+                onFocus={() => { if (suggestions.length) setShowDropdown(true) }}
+                placeholder="Search existing accounts…"
+                autoFocus
+                autoComplete="off"
+                style={{ paddingRight: selectedAccount ? 28 : undefined }}
+              />
+              {selectedAccount && (
+                <button
+                  type="button"
+                  onClick={clearAccount}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, lineHeight: 1,
+                  }}
+                >×</button>
+              )}
+            </div>
+
+            {/* Selected badge */}
+            {selectedAccount && (
+              <div style={{ marginTop: 4, fontSize: 12, color: '#16a34a', fontWeight: 500 }}>
+                ✓ {selectedAccount.name}
+              </div>
+            )}
+
+            {/* Dropdown suggestions */}
+            {showDropdown && suggestions.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', marginTop: 2, overflow: 'hidden',
+              }}>
+                {suggestions.map(a => (
+                  <div
+                    key={a.id}
+                    onMouseDown={() => pickAccount(a)}
+                    style={{
+                      padding: '9px 14px', cursor: 'pointer', fontSize: 13,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f5f3ff'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <span style={{ fontWeight: 500, color: '#111827' }}>{a.name}</span>
+                    {a.stage_name && (
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{a.stage_name}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* No results hint */}
+            {showDropdown && suggestions.length === 0 && query.trim().length >= 1 && !selectedAccount && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', marginTop: 2,
+                padding: '12px 14px', fontSize: 12, color: '#6b7280',
+              }}>
+                No accounts found. <strong>Log an activity first</strong> to add this company.
+              </div>
+            )}
           </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label className="form-label">Lifecycle Stage</label>
@@ -173,7 +275,9 @@ function NewLeadModal({ users, onClose, onCreated }) {
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
             <button type="button" className="btn" style={{ background: 'white', border: '1px solid #e5e7eb' }} onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create Lead'}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving || !selectedAccount}>
+              {saving ? 'Creating…' : 'Create Lead'}
+            </button>
           </div>
         </form>
       </div>
@@ -314,6 +418,88 @@ function ScoreCell({ lead, onUpdated }) {
       </div>
       <span style={{ fontSize: 12, fontWeight: 600, color: saving ? '#9ca3af' : color }}>{score}</span>
     </div>
+  )
+}
+
+// ── Lead Row (with inline delete) ─────────────────────────────────────────────
+
+function LeadRow({ lead, isLast, onUpdated }) {
+  const [confirming, setConfirming] = useState(false)
+  const [deleting,   setDeleting]   = useState(false)
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await api.del(`/leads/${lead.id}`)
+      onUpdated()
+    } finally {
+      setDeleting(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <tr style={{ borderBottom: isLast ? 'none' : '1px solid #f9fafb', background: 'white' }}>
+      <td style={{ padding: '11px 16px' }}>
+        <Link
+          to={`/accounts/${lead.id}`}
+          style={{ fontWeight: 600, color: '#111827', fontSize: 13, textDecoration: 'none' }}
+        >
+          {lead.name}
+        </Link>
+        {lead.stage_name && (
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{lead.stage_name}</div>
+        )}
+      </td>
+      <td style={{ padding: '11px 16px' }}>
+        <StageCell lead={lead} onUpdated={onUpdated} />
+      </td>
+      <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
+        {lead.lead_source ? SOURCE_LABELS[lead.lead_source] ?? lead.lead_source : '—'}
+      </td>
+      <td style={{ padding: '11px 16px' }}>
+        <ScoreCell lead={lead} onUpdated={onUpdated} />
+      </td>
+      <td style={{ padding: '11px 16px', fontSize: 12, color: '#374151' }}>
+        {lead.owner_name ?? <span style={{ color: '#9ca3af' }}>—</span>}
+      </td>
+      <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
+        {lead.last_activity_date ?? <span style={{ color: '#d1d5db' }}>none</span>}
+      </td>
+      <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
+        {lead.activity_count}
+      </td>
+      <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+        {!confirming ? (
+          <button
+            className="btn btn-sm"
+            style={{ fontSize: 11, padding: '2px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+            onClick={() => setConfirming(true)}
+          >
+            Remove
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#dc2626' }}>Remove lead?</span>
+            <button
+              className="btn btn-sm"
+              style={{ fontSize: 11, padding: '2px 8px', background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? '…' : 'Yes'}
+            </button>
+            <button
+              className="btn btn-sm"
+              style={{ fontSize: 11, padding: '2px 8px' }}
+              onClick={() => setConfirming(false)}
+            >
+              No
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
   )
 }
 
@@ -504,47 +690,12 @@ export default function Leads() {
                 <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Owner</th>
                 <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Last Activity</th>
                 <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Activities</th>
+                <th style={{ padding: '10px 16px' }}></th>
               </tr>
             </thead>
             <tbody>
               {leads.map((lead, i) => (
-                <tr
-                  key={lead.id}
-                  style={{
-                    borderBottom: i < leads.length - 1 ? '1px solid #f9fafb' : 'none',
-                    background: 'white',
-                  }}
-                >
-                  <td style={{ padding: '11px 16px' }}>
-                    <Link
-                      to={`/accounts/${lead.id}`}
-                      style={{ fontWeight: 600, color: '#111827', fontSize: 13, textDecoration: 'none' }}
-                    >
-                      {lead.name}
-                    </Link>
-                    {lead.stage_name && (
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{lead.stage_name}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '11px 16px' }}>
-                    <StageCell lead={lead} onUpdated={refresh} />
-                  </td>
-                  <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
-                    {lead.lead_source ? SOURCE_LABELS[lead.lead_source] ?? lead.lead_source : '—'}
-                  </td>
-                  <td style={{ padding: '11px 16px' }}>
-                    <ScoreCell lead={lead} onUpdated={refresh} />
-                  </td>
-                  <td style={{ padding: '11px 16px', fontSize: 12, color: '#374151' }}>
-                    {lead.owner_name ?? <span style={{ color: '#9ca3af' }}>—</span>}
-                  </td>
-                  <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
-                    {lead.last_activity_date ?? <span style={{ color: '#d1d5db' }}>none</span>}
-                  </td>
-                  <td style={{ padding: '11px 16px', fontSize: 12, color: '#6b7280' }}>
-                    {lead.activity_count}
-                  </td>
-                </tr>
+                <LeadRow key={lead.id} lead={lead} isLast={i === leads.length - 1} onUpdated={refresh} />
               ))}
             </tbody>
           </table>

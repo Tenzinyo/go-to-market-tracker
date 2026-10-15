@@ -105,6 +105,18 @@ router.get('/funnel', (_req, res) => {
   res.json({ ok: true, funnel, sources, total });
 });
 
+// ── DELETE /api/leads/:id ─────────────────────────────────────────────────────
+// Removes the lead status by clearing lifecycle_stage (does not delete the account)
+
+router.delete('/:id', (req, res) => {
+  const account = db.prepare(`SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL`).get(req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+
+  db.prepare(`UPDATE accounts SET lifecycle_stage = NULL, updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
+  emit('account_updated', { id: Number(req.params.id) });
+  res.json({ ok: true });
+});
+
 // ── PATCH /api/leads/:id ──────────────────────────────────────────────────────
 
 router.patch('/:id', (req, res) => {
