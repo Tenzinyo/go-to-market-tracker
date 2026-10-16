@@ -380,71 +380,73 @@ ${context}`;
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
+  // Detect whether the question is requesting a mutation (assign/move/delete/update)
+  // vs. a read-only query. Only use tool calling for mutations — streaming directly
+  // is far more reliable for Q&A with small models like llama3.2.
+  const ACTION_RE = /\b(assign|move\s+(to|account)|change\s+(owner|stage)|update\s+next\s+step|delete|remove\s+activit)/i;
+  const isAction = ACTION_RE.test(question.trim());
+
   try {
     const messages = [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: question.trim() },
     ];
 
-    // ── Pass 1: non-streaming, with tools, to detect tool calls ───────────────
-    const pass1 = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: OLLAMA_MODEL, stream: false, tools: TOOLS, messages }),
-    });
+    if (isAction) {
+      // ── Pass 1: non-streaming, with tools, to detect tool calls ─────────────
+      const pass1 = await fetch(`${OLLAMA_URL}/api/chat`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: OLLAMA_MODEL, stream: false, tools: TOOLS, messages }),
+      });
 
-    if (!pass1.ok) {
-      const err = await pass1.text();
-      res.write(`data: ${JSON.stringify({ error: `Ollama error: ${err}` })}\n\n`);
-      return;
-    }
-
-    const pass1Data = await pass1.json();
-    const assistantMsg = pass1Data.message;
-
-    // ── If tool calls returned, execute them ───────────────────────────────────
-    if (assistantMsg?.tool_calls?.length) {
-      messages.push(assistantMsg);
-
-      const confirmActions = [];
-      for (const tc of assistantMsg.tool_calls) {
-        const toolName = tc.function?.name;
-        const toolArgs = tc.function?.arguments ?? {};
-        console.log(`[chat] tool call: ${toolName}`, toolArgs);
-
-        const result = executeTool(toolName, toolArgs, currentUserId);
-        console.log(`[chat] tool result:`, result);
-
-        if (result.needsConfirmation) {
-          confirmActions.push(result);
-        }
-
-        messages.push({
-          role:    'tool',
-          content: JSON.stringify(result),
-        });
+      if (!pass1.ok) {
+        const err = await pass1.text();
+        res.write(`data: ${JSON.stringify({ error: `Ollama error: ${err}` })}\n\n`);
+        return;
       }
 
-      // Emit confirmAction events so the frontend can show Yes/No buttons
-      for (const ca of confirmActions) {
-        res.write(`data: ${JSON.stringify({ confirmAction: ca })}\n\n`);
-      }
+      const pass1Data = await pass1.json();
+      const assistantMsg = pass1Data.message;
 
-      // ── Pass 2: stream the final response now that tools ran ─────────────────
-      await streamOllama(messages, res);
-    } else {
-      // No tool calls — stream directly from pass1 content or do a streaming re-ask
-      // If pass1 already has content, stream it token-by-token as one chunk
-      const content = assistantMsg?.content;
-      if (content) {
-        // Stream word by word so UI feels responsive
-        const words = content.split(' ');
-        for (const word of words) {
-          res.write(`data: ${JSON.stringify({ text: word + ' ' })}\n\n`);
+      if (assistantMsg?.tool_calls?.length) {
+        messages.push(assistantMsg);
+
+        const confirmActions = [];
+        for (const tc of assistantMsg.tool_calls) {
+          const toolName = tc.function?.name;
+          const toolArgs = tc.function?.arguments ?? {};
+          console.log(`[chat] tool call: ${toolName}`, toolArgs);
+
+          const result = executeTool(toolName, toolArgs, currentUserId);
+          console.log(`[chat] tool result:`, result);
+
+          if (result.needsConfirmation) confirmActions.push(result);
+
+          messages.push({ role: 'tool', content: JSON.stringify(result) });
         }
-      } else {
+
+        for (const ca of confirmActions) {
+          res.write(`data: ${JSON.stringify({ confirmAction: ca })}\n\n`);
+        }
+
+        // ── Pass 2: stream the final response now that tools ran ───────────────
         await streamOllama(messages, res);
+      } else {
+        // Tool calling failed — fall back to streaming the content directly
+        const content = assistantMsg?.content;
+        if (content) {
+          const words = content.split(' ');
+          for (const word of words) {
+            res.write(`data: ${JSON.stringify({ text: word + ' ' })}\n\n`);
+          }
+        } else {
+          await streamOllama(messages, res);
+        }
       }
+    } else {
+      // ── Read-only Q&A: stream directly, no tool overhead ────────────────────
+      await streamOllama(messages, res);
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
