@@ -14,6 +14,7 @@ const db      = require('../db/db');
 const { extract, splitConversation } = require('../services/extractor');
 const { findCandidates }             = require('../services/fuzzyMatcher');
 const { emit }                       = require('../services/sseEmitter');
+const { fireTrigger }                = require('../services/workflowEngine');
 const { syncEntry }                  = require('../services/sheetsSync');
 const { appendEntry }                = require('../services/xlsxFallback');
 const { enqueue }                    = require('../services/retryQueue');
@@ -30,14 +31,22 @@ function getStageByName(name) {
 }
 
 function getOrCreateAccount(name, stageId) {
+  // 1. Exact match (case-insensitive)
   let account = db.prepare(`SELECT id, name FROM accounts WHERE lower(name) = lower(?) AND deleted_at IS NULL`).get(name);
-  if (!account) {
-    const info = db.prepare(`
-      INSERT INTO accounts (name, aliases, current_stage_id) VALUES (?, '[]', ?)
-    `).run(name, stageId ?? null);
-    account = { id: info.lastInsertRowid, name };
+  if (account) return account;
+
+  // 2. High-confidence fuzzy match — avoids creating duplicates when the extracted
+  //    name is a slight variation of an existing account (e.g. "Nomura" vs "Nomura Securities")
+  const candidates = findCandidates(name);
+  if (candidates.length > 0 && candidates[0].score >= 0.85) {
+    return { id: candidates[0].id, name: candidates[0].name };
   }
-  return account;
+
+  // 3. No match — create new account
+  const info = db.prepare(`
+    INSERT INTO accounts (name, aliases, current_stage_id) VALUES (?, '[]', ?)
+  `).run(name, stageId ?? null);
+  return { id: info.lastInsertRowid, name };
 }
 
 // ── POST /api/entries/extract ─────────────────────────────────────────────────
@@ -256,6 +265,13 @@ router.post('/', (req, res) => {
   }
   if (stageActuallyChanged && account_id) {
     emit('stage_change', { account_id, to_stage_id: stage_id, to_stage_name: stage_name });
+    fireTrigger('stage_changed', {
+      entity:       'account',
+      account_id,
+      account_name: resolvedAccountName,
+      to_stage_id:  stage_id,
+      to_stage_name: stage_name,
+    });
   }
 
   const saved = db.prepare(`SELECT * FROM entries WHERE id = ?`).get(id);

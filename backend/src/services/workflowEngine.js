@@ -7,6 +7,7 @@
  */
 
 const db = require('../db/db');
+const { emit } = require('./sseEmitter');
 
 const LIFECYCLE_STAGES = ['lead', 'mql', 'sql', 'opportunity', 'customer', 'churned'];
 
@@ -42,7 +43,7 @@ function executeAction(workflow, context) {
         ? new Date(Date.now() + offsetDays * 86_400_000).toISOString().split('T')[0]
         : null;
 
-      db.prepare(`
+      const info = db.prepare(`
         INSERT INTO tasks (title, priority, due_date, account_id, deal_id, assignee_id)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(
@@ -53,6 +54,7 @@ function executeAction(workflow, context) {
         context.deal_id    ?? null,
         config.assignee_id ?? null,
       );
+      emit('task_created', { id: info.lastInsertRowid, account_id: context.account_id ?? null, deal_id: context.deal_id ?? null });
       break;
     }
 
