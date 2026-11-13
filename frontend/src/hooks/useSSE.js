@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 
 export function useSSE(onEvent) {
   useEffect(() => {
-    const es = new EventSource('/api/events')
+    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events')
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)

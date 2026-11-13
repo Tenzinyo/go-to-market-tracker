@@ -61,7 +61,7 @@ function ChatProvider({ children }) {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/chat/query', {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + '/api/chat/query', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ question: question.trim() }),

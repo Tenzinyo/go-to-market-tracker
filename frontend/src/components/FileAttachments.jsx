@@ -61,7 +61,7 @@ export default function FileAttachments({ entityType, entityId }) {
         const headers = {}
         if (userId) headers['X-User-Id'] = String(userId)
 
-        const res = await fetch('/api/attachments', { method: 'POST', headers, body: form })
+        const res = await fetch((import.meta.env.VITE_API_URL || '') + '/api/attachments', { method: 'POST', headers, body: form })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || `Upload failed`)
       } catch (err) {

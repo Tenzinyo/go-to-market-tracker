@@ -52,7 +52,20 @@ const { attachUser } = require('./middleware/rbac');
 // ── App ────────────────────────────────────────────────────────────────────────
 const app = express();
 
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:4173',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // allow server-to-server requests (no Origin header) and listed origins
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '2mb' }));
 app.use(attachUser); // attach req.currentUser on every request
 
