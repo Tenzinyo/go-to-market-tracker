@@ -12,7 +12,7 @@ const fs      = require('fs');
 // ── Bootstrap DB + seed ────────────────────────────────────────────────────────
 require('./db/db');        // initializes DB + runs schema
 require('./db/seed');      // idempotent seed (stages, default settings)
-require('./db/seed_demo'); // auto-populate demo data if DB is empty
+try { require('./db/seed_demo'); } catch (e) { console.error('[seed_demo] failed:', e.message); }
 
 // ── Background services ────────────────────────────────────────────────────────
 require('./services/retryQueue').start();      // retry failed Sheets syncs every 5 min
