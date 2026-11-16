@@ -2,6 +2,8 @@
 
 A local-first, full-stack Go-To-Market activity tracker built for sales teams. Log meetings, calls, and touchpoints in plain English — the app extracts structured data automatically with zero AI dependencies and zero API costs. Everything runs on your machine: SQLite database, Node.js backend, React frontend.
 
+> **Live demo:** [https://go-to-market-tracker.netlify.app](https://go-to-market-tracker.netlify.app)
+
 > **Demo-ready.** Seed 15 accounts, 11 deals, 38 activities, and 12 tasks in one command and walk through every feature immediately.
 
 ---
