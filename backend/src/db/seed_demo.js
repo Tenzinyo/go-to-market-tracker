@@ -12,9 +12,9 @@ const crypto = require('crypto');
 const RESET = process.argv.includes('--reset');
 
 // ── Guard ─────────────────────────────────────────────────────────────────────
-const existing = db.prepare('SELECT COUNT(*) as c FROM entries WHERE deleted_at IS NULL').get().c;
-if (existing > 0 && !RESET) {
-  console.log(`Demo data already present (${existing} entries). Use --reset to re-seed.`);
+const existing = db.prepare('SELECT COUNT(*) as c FROM accounts WHERE deleted_at IS NULL').get().c;
+if (existing >= 10 && !RESET) {
+  console.log(`Demo data already present (${existing} accounts). Use --reset to re-seed.`);
   return;
 }
 
