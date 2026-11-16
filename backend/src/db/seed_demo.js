@@ -15,7 +15,7 @@ const RESET = process.argv.includes('--reset');
 const existing = db.prepare('SELECT COUNT(*) as c FROM entries WHERE deleted_at IS NULL').get().c;
 if (existing > 0 && !RESET) {
   console.log(`Demo data already present (${existing} entries). Use --reset to re-seed.`);
-  process.exit(0);
+  return;
 }
 
 if (RESET) {
