@@ -10,8 +10,9 @@ const path    = require('path');
 const fs      = require('fs');
 
 // ── Bootstrap DB + seed ────────────────────────────────────────────────────────
-require('./db/db');   // initializes DB + runs schema
-require('./db/seed'); // idempotent seed (stages, default settings)
+require('./db/db');        // initializes DB + runs schema
+require('./db/seed');      // idempotent seed (stages, default settings)
+require('./db/seed_demo'); // auto-populate demo data if DB is empty
 
 // ── Background services ────────────────────────────────────────────────────────
 require('./services/retryQueue').start();      // retry failed Sheets syncs every 5 min
